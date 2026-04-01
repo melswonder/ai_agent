@@ -1,36 +1,49 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Spotify Chat DJ
 
-## Getting Started
+LangGraph を使って「会話から意図をくみ取り、Spotify の再生内容を変える」ためのアプリです。フロントは Next.js のチャット UI、バックエンドは Python / FastAPI で、Spotify OAuth / Web API / Web Playback SDK / PostgreSQL を前提にした構成です。
 
-First, run the development server:
+## できること
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
-```
+- Spotify アカウントを OAuth で接続
+- ブラウザを Spotify 再生デバイスとして登録
+- チャットから雰囲気ベースで再生を変更
+- LangGraph のツール呼び出しで検索、再生、一時停止、スキップ、音量変更
+- 会話ログと Spotify 接続情報を PostgreSQL に保存
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+## ローカル起動
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+1. `.env.example` を元に `.env.local` を用意
+2. `docker compose up -d postgres`
+3. `python3 -m pip install -r backend/requirements.txt`
+4. `pnpm dev`
+5. `pnpm dev:backend`
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Spotify のダッシュボード側 callback URL は `https://127.0.0.1:8000/callbacks` に合わせています。Next.js は `8000` の HTTPS で立ち上がり、`/api/*` と `/callbacks` は Python バックエンドへ rewrite されます。
 
-## Learn More
+Docker で Python バックエンドまで起動したい場合は `docker compose up -d postgres backend` でも動かせます。
 
-To learn more about Next.js, take a look at the following resources:
+## 必須環境変数
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+- `PYTHON_BACKEND_URL`
+- `DATABASE_URL`
+- `SESSION_SECRET`
+- `SPOTIFY_CLIENT_ID`
+- `SPOTIFY_CLIENT_SECRET`
+- `SPOTIFY_CALLBACK_URL`
+- `SPOTIFY_TOKEN_ENCRYPTION_KEY`
+- `OPENAI_API_KEY`
+- `OPENAI_MODEL`
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## 構成
 
-## Deploy on Vercel
+- `src/app`: App Router とフロントエンド
+- `src/components`: チャット UI と Web Playback SDK ブリッジ
+- `backend/app`: FastAPI / Spotify OAuth / LangGraph エージェント
+- `prisma/schema.prisma`: DB スキーマ
+- `docs/architecture.md`: ゴールまでの設計
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## 注意
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+- Web Playback SDK は Spotify Premium が必要です。
+- `SPOTIFY_CLIENT_SECRET` はサーバー側だけで扱い、ブラウザには出しません。
+- 共有済みの client secret は必ず再発行してください。
