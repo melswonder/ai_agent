@@ -72,6 +72,11 @@ async function fetchSessionState() {
     cache: "no-store",
   });
 
+  if (!response.ok) {
+    const message = await readErrorText(response);
+    throw new Error(message || "セッション状態の取得に失敗しました。");
+  }
+
   return (await response.json()) as SessionDto;
 }
 
@@ -88,6 +93,11 @@ async function fetchPlaybackState() {
     playback: PlaybackDto | null;
     deviceReady: boolean;
   };
+}
+
+async function readErrorText(response: Response) {
+  const text = await response.text();
+  return text.startsWith("{") ? text : text.trim();
 }
 
 function authErrorMessage(code: string | null) {
@@ -528,10 +538,17 @@ export function HomeShell({
           const response = await fetch("/api/chat/history", {
             method: "DELETE",
           });
-          const data = (await response.json()) as {
-            ok?: boolean;
-            error?: string;
-          };
+          const data = response.ok
+            ? ((await response.json()) as {
+                ok?: boolean;
+                error?: string;
+              })
+            : ({
+                error: await readErrorText(response),
+              } as {
+                ok?: boolean;
+                error?: string;
+              });
 
           if (!response.ok || !data.ok) {
             setNotice(data.error ?? "履歴の削除に失敗しました。");
@@ -591,9 +608,11 @@ export function HomeShell({
               message,
             }),
           });
-          const data = (await response.json()) as
-            | ChatResponseDto
-            | { error?: string };
+          const data = response.ok
+            ? ((await response.json()) as ChatResponseDto | { error?: string })
+            : ({
+                error: await readErrorText(response),
+              } as ChatResponseDto | { error?: string });
 
           if (!response.ok) {
             setNotice(

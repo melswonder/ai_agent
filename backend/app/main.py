@@ -321,7 +321,19 @@ def playback(request: Request, db: Session = Depends(get_db)) -> Response:
     if not connection:
         return JSONResponse({"error": "Spotify is not connected."}, status_code=401)
 
-    current_playback = get_current_playback_state(db, session_id)
+    try:
+        current_playback = get_current_playback_state(db, session_id)
+    except Exception:
+        logger.exception("Unable to read playback state")
+        return JSONResponse(
+            {
+                "playback": None,
+                "deviceReady": bool(connection.player_device_id),
+                "error": "Unable to read playback state.",
+            },
+            status_code=200,
+        )
+
     return JSONResponse(
         {
             "playback": current_playback,

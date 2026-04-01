@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from datetime import UTC, datetime
 from uuid import uuid4
 
 from fastapi import Request, Response
@@ -19,7 +20,12 @@ def generate_id(prefix: str) -> str:
 
 
 def create_session(db: Session) -> SessionModel:
-    session = SessionModel(id=generate_id("session"))
+    now = datetime.now(UTC)
+    session = SessionModel(
+        id=generate_id("session"),
+        created_at=now,
+        updated_at=now,
+    )
     db.add(session)
     db.commit()
     db.refresh(session)
@@ -53,4 +59,3 @@ def attach_session_cookie(response: Response, session_id: str) -> None:
 
 def clear_session_cookie(response: Response) -> None:
     response.delete_cookie(SESSION_COOKIE_NAME, path="/")
-

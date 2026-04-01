@@ -35,6 +35,16 @@ SPOTIFY_SCOPES = [
 ]
 
 
+def utc_now() -> datetime:
+    return datetime.now(UTC)
+
+
+def ensure_utc_datetime(value: datetime) -> datetime:
+    if value.tzinfo is None or value.tzinfo.utcoffset(value) is None:
+        return value.replace(tzinfo=UTC)
+    return value.astimezone(UTC)
+
+
 def _base64url_encode(value: bytes) -> str:
     return base64.urlsafe_b64encode(value).rstrip(b"=").decode("ascii")
 
@@ -134,9 +144,8 @@ def get_valid_spotify_access_token(
         raise RuntimeError("Spotify account is not connected.")
 
     cached_access_token = decrypt_string(connection.encrypted_access_token)
-    expires_soon = connection.access_token_expires_at <= (
-        datetime.now(UTC) + timedelta(minutes=1)
-    )
+    expires_at = ensure_utc_datetime(connection.access_token_expires_at)
+    expires_soon = expires_at <= (utc_now() + timedelta(minutes=1))
 
     if not force_refresh and not expires_soon:
         return cached_access_token, connection
@@ -149,11 +158,9 @@ def get_valid_spotify_access_token(
     next_refresh_token = refreshed.get("refresh_token") or refresh_token
     connection.encrypted_access_token = encrypt_string(refreshed["access_token"])
     connection.encrypted_refresh_token = encrypt_string(next_refresh_token)
-    connection.access_token_expires_at = datetime.now(UTC) + timedelta(
-        seconds=refreshed["expires_in"]
-    )
+    connection.access_token_expires_at = utc_now() + timedelta(seconds=refreshed["expires_in"])
     connection.scope = refreshed.get("scope") or connection.scope
-    connection.updated_at = datetime.now(UTC)
+    connection.updated_at = utc_now()
     db.add(connection)
     db.commit()
     db.refresh(connection)
@@ -452,7 +459,7 @@ def set_preferred_player_device(db: Session, session_id: str, device_id: str) ->
         raise RuntimeError("Spotify account is not connected.")
 
     connection.player_device_id = device_id
-    connection.updated_at = datetime.now(UTC)
+    connection.updated_at = utc_now()
     db.add(connection)
     db.commit()
     transfer_playback_to_device(db, session_id, device_id)
