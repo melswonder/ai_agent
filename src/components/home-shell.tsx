@@ -16,7 +16,6 @@ import {
   Loader2,
   MoreHorizontal,
   Music,
-  Radio,
   Send,
   Trash2,
   User,
@@ -889,77 +888,6 @@ export function HomeShell({
             </div>
           </div>
         </div>
-
-        {hasMounted ? (
-          <div className="pointer-events-none absolute right-4 top-6 hidden w-72 lg:block">
-            <div className="space-y-3">
-              <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_18px_60px_rgba(24,24,27,0.05)]">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-3">
-                    <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-2">
-                      <Radio className="h-4 w-4 text-zinc-500" />
-                    </div>
-                    <div>
-                      <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">
-                        Live Session
-                      </p>
-                      <p className="mt-2 text-sm font-semibold text-zinc-900">
-                        {session.profile?.displayName ?? "Guest Session"}
-                      </p>
-                    </div>
-                  </div>
-                  <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-300">
-                    {sdkStatus.connected ? "SYNCED" : "OPEN"}
-                  </span>
-                </div>
-
-                <div className="mt-4 space-y-3 border-t border-zinc-100 pt-4">
-                  <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400">
-                    <span>Account</span>
-                    <span>{session.authenticated ? "READY" : "WAITING"}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400">
-                    <span>LLM Agent</span>
-                    <span>{session.llmConfigured ? "ARMED" : "LOCKED"}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-400">
-                    <span>Device</span>
-                    <span>{session.deviceReady ? "ONLINE" : "PENDING"}</span>
-                  </div>
-                </div>
-              </div>
-
-              {currentTrack ? (
-                <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_18px_60px_rgba(24,24,27,0.05)]">
-                  {currentTrack.imageUrl ? (
-                    <Image
-                      src={currentTrack.imageUrl}
-                      alt={currentTrack.name}
-                      width={480}
-                      height={480}
-                      className="h-44 w-full rounded-xl object-cover"
-                    />
-                  ) : (
-                    <div className="flex h-44 items-center justify-center rounded-xl border border-zinc-100 bg-zinc-50 text-sm text-zinc-400">
-                      Album Art
-                    </div>
-                  )}
-
-                  <p className="mt-4 text-sm font-semibold text-zinc-900">
-                    {currentTrack.name}
-                  </p>
-                  <p className="mt-2 text-sm leading-7 text-zinc-500">
-                    {currentTrack.artists.join(", ")}
-                  </p>
-                  <div className="mt-4 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-300">
-                    <span>{session.playback?.deviceName ?? "Browser"}</span>
-                    <span>{session.playback?.volumePercent ?? "--"}%</span>
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
       </main>
 
       {isSettingsOpen ? (
