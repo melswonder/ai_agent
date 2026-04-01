@@ -5,13 +5,15 @@ from functools import lru_cache
 from pathlib import Path
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
-from dotenv import load_dotenv
+from dotenv import dotenv_values, load_dotenv, set_key, unset_key
 from pydantic import BaseModel
 
 
 ROOT_DIR = Path(__file__).resolve().parents[2]
-load_dotenv(ROOT_DIR / ".env.local")
-load_dotenv(ROOT_DIR / ".env", override=False)
+ENV_LOCAL_PATH = ROOT_DIR / ".env.local"
+ENV_PATH = ROOT_DIR / ".env"
+load_dotenv(ENV_LOCAL_PATH)
+load_dotenv(ENV_PATH, override=False)
 
 
 def _empty_to_none(value: str | None) -> str | None:
@@ -79,6 +81,67 @@ class Settings(BaseModel):
     @property
     def llm_configured(self) -> bool:
         return bool(self.openai_api_key)
+
+
+def _reload_environment() -> None:
+    for key in [
+        "SPOTIFY_CLIENT_ID",
+        "SPOTIFY_CLIENT_SECRET",
+        "SPOTIFY_CALLBACK_URL",
+    ]:
+        os.environ.pop(key, None)
+
+    load_dotenv(ENV_PATH, override=True)
+    load_dotenv(ENV_LOCAL_PATH, override=True)
+    get_settings.cache_clear()
+
+
+def get_spotify_env_values() -> dict[str, str]:
+    local_values = dotenv_values(ENV_LOCAL_PATH)
+    fallback_values = dotenv_values(ENV_PATH)
+
+    def pick(key: str) -> str:
+        return (
+            _empty_to_none(local_values.get(key))
+            or _empty_to_none(fallback_values.get(key))
+            or _empty_to_none(os.getenv(key))
+            or ""
+        )
+
+    return {
+        "clientId": pick("SPOTIFY_CLIENT_ID"),
+        "clientSecret": pick("SPOTIFY_CLIENT_SECRET"),
+    }
+
+
+def save_spotify_env_values(client_id: str, client_secret: str) -> dict[str, str]:
+    ENV_LOCAL_PATH.touch(exist_ok=True)
+
+    normalized_client_id = client_id.strip()
+    normalized_client_secret = client_secret.strip()
+
+    if normalized_client_id:
+        set_key(
+            ENV_LOCAL_PATH,
+            "SPOTIFY_CLIENT_ID",
+            normalized_client_id,
+            quote_mode="never",
+        )
+    else:
+        unset_key(ENV_LOCAL_PATH, "SPOTIFY_CLIENT_ID")
+
+    if normalized_client_secret:
+        set_key(
+            ENV_LOCAL_PATH,
+            "SPOTIFY_CLIENT_SECRET",
+            normalized_client_secret,
+            quote_mode="never",
+        )
+    else:
+        unset_key(ENV_LOCAL_PATH, "SPOTIFY_CLIENT_SECRET")
+
+    _reload_environment()
+    return get_spotify_env_values()
 
 
 @lru_cache(maxsize=1)

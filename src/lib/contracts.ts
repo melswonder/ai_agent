@@ -49,3 +49,9 @@ export type SdkStatus = {
   deviceId: string | null;
   error: string | null;
 };
+
+export type SpotifyConfigDto = {
+  clientId: string;
+  clientSecret: string;
+  configured: boolean;
+};

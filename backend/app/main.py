@@ -10,10 +10,10 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from backend.app.agent import run_music_agent
-from backend.app.config import get_settings
+from backend.app.config import get_settings, get_spotify_env_values, save_spotify_env_values
 from backend.app.db import get_db
 from backend.app.models import ChatMessageModel, SessionModel, SpotifyConnectionModel
-from backend.app.schemas import ChatPayload, DevicePayload
+from backend.app.schemas import ChatPayload, DevicePayload, SpotifyConfigPayload
 from backend.app.security import encrypt_string
 from backend.app.session import (
     attach_session_cookie,
@@ -133,6 +133,32 @@ def build_friendly_error(error: Exception) -> str:
 def redirect_with_error(auth_error: str) -> RedirectResponse:
     url = f"{get_settings().app_url}/?authError={auth_error}"
     return RedirectResponse(url, status_code=307)
+
+
+@app.get("/api/config/spotify")
+def get_spotify_config() -> Response:
+    values = get_spotify_env_values()
+    settings = get_settings()
+    return JSONResponse(
+        {
+            "clientId": values["clientId"],
+            "clientSecret": values["clientSecret"],
+            "configured": settings.spotify_configured,
+        }
+    )
+
+
+@app.post("/api/config/spotify")
+def update_spotify_config(payload: SpotifyConfigPayload) -> Response:
+    values = save_spotify_env_values(payload.clientId, payload.clientSecret)
+    settings = get_settings()
+    return JSONResponse(
+        {
+            "clientId": values["clientId"],
+            "clientSecret": values["clientSecret"],
+            "configured": settings.spotify_configured,
+        }
+    )
 
 
 @app.get("/api/auth/spotify/login")

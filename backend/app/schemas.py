@@ -10,3 +10,7 @@ class DevicePayload(BaseModel):
 class ChatPayload(BaseModel):
     message: str = Field(min_length=1, max_length=400)
 
+
+class SpotifyConfigPayload(BaseModel):
+    clientId: str = Field(default="", max_length=200)
+    clientSecret: str = Field(default="", max_length=400)

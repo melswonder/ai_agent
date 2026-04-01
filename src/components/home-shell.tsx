@@ -6,12 +6,15 @@ import {
   useEffect,
   useRef,
   useState,
+  useSyncExternalStore,
   useTransition,
   type FormEvent,
 } from "react";
 import {
   Activity,
   Bot,
+  ChevronLeft,
+  ChevronRight,
   Cpu,
   Loader2,
   MoreHorizontal,
@@ -28,6 +31,7 @@ import type {
   PlaybackDto,
   SdkStatus,
   SessionDto,
+  SpotifyConfigDto,
 } from "@/lib/contracts";
 import { SpotifyWebPlayerBridge } from "@/components/spotify-web-player-bridge";
 
@@ -94,6 +98,39 @@ async function fetchPlaybackState() {
   };
 }
 
+async function fetchSpotifyConfig() {
+  const response = await fetch("/api/config/spotify", {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const message = await readErrorText(response);
+    throw new Error(message || "Spotify 設定の取得に失敗しました。");
+  }
+
+  return (await response.json()) as SpotifyConfigDto;
+}
+
+async function updateSpotifyConfig(payload: {
+  clientId: string;
+  clientSecret: string;
+}) {
+  const response = await fetch("/api/config/spotify", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const message = await readErrorText(response);
+    throw new Error(message || "Spotify 設定の保存に失敗しました。");
+  }
+
+  return (await response.json()) as SpotifyConfigDto;
+}
+
 async function readErrorText(response: Response) {
   const text = await response.text();
   return text.startsWith("{") ? text : text.trim();
@@ -152,10 +189,98 @@ function progressWidth(progressMs: number, durationMs: number | null | undefined
   );
 }
 
-function NowPlayingPanel({
+function DetailRow({
+  label,
+  value,
+}: {
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4 border-b border-zinc-100 py-3 last:border-b-0 last:pb-0">
+      <span className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">
+        {label}
+      </span>
+      <span className="max-w-[60%] break-all text-right text-sm leading-6 text-zinc-600">
+        {value}
+      </span>
+    </div>
+  );
+}
+
+function SpotifyGlyph({ className }: { className?: string }) {
+  return (
+    <svg
+      viewBox="0 0 168 168"
+      aria-hidden="true"
+      className={className}
+      fill="none"
+    >
+      <circle cx="84" cy="84" r="84" fill="#1DB954" />
+      <path
+        d="M118.8 116.1a7 7 0 0 1-9.6 2.3c-26.4-16.1-59.7-19.7-99-10.8a7 7 0 0 1-3.1-13.7c43.1-9.8 80.2-5.7 109.4 12.1a7 7 0 0 1 2.3 10.1Z"
+        fill="#081C10"
+      />
+      <path
+        d="M132.5 85.7a8.9 8.9 0 0 1-12.2 3c-30.2-18.5-76.2-23.8-111.9-12.8a8.9 8.9 0 1 1-5.3-17c40.8-12.8 92.1-6.8 126.5 14.2a8.9 8.9 0 0 1 2.9 12.6Z"
+        fill="#081C10"
+      />
+      <path
+        d="M133.7 54.8C97.3 33.2 37.3 31.2 2.7 41.8c-5.6 1.7-11.6-1.4-13.3-7.1-1.8-5.7 1.4-11.6 7.1-13.4 39.7-12.1 105.5-9.7 147.9 15.5 5.1 3 6.7 9.6 3.7 14.7-2.9 5-9.5 6.7-14.4 3.3Z"
+        fill="#081C10"
+      />
+    </svg>
+  );
+}
+
+function StatusPill({
+  label,
+  tone,
+}: {
+  label: string;
+  tone: "success" | "warning" | "offline";
+}) {
+  const toneClasses =
+    tone === "success"
+      ? "border-emerald-200 bg-emerald-50 text-emerald-700"
+      : tone === "warning"
+        ? "border-amber-200 bg-amber-50 text-amber-700"
+        : "border-zinc-200 bg-zinc-100 text-zinc-500";
+
+  const dotClasses =
+    tone === "success"
+      ? "bg-emerald-500"
+      : tone === "warning"
+        ? "bg-amber-500"
+        : "bg-zinc-400";
+
+  return (
+    <span
+      className={clsx(
+        "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-[10px] font-black uppercase tracking-[0.16em]",
+        toneClasses,
+      )}
+    >
+      <span className={clsx("h-2 w-2 rounded-full", dotClasses)} />
+      {label}
+    </span>
+  );
+}
+
+function NowPlayingDrawer({
+  authenticated,
+  displayName,
+  sdkConnected,
+  isOpen,
+  onToggle,
   currentTrack,
   playback,
 }: {
+  authenticated: boolean;
+  displayName: string | null | undefined;
+  sdkConnected: boolean;
+  isOpen: boolean;
+  onToggle: () => void;
   currentTrack: PlaybackDto["item"] | null;
   playback: PlaybackDto | null;
 }) {
@@ -208,73 +333,151 @@ function NowPlayingPanel({
     (playback?.progressMs ?? 0) + elapsedMs,
     currentTrack?.durationMs,
   );
+  const playbackStatus = playback?.isPlaying ? "Playing" : "Idle";
+  const deviceLabel = playback?.deviceName
+    ? playback.deviceName
+    : authenticated
+      ? "Browser standby"
+      : "Not connected";
+  const accountLabel = authenticated
+    ? displayName ?? "Connected account"
+    : "Spotify not connected";
+  const volumeLabel =
+    playback?.volumePercent != null ? `${playback.volumePercent}%` : "--";
+  const contextLabel = playback?.context?.type
+    ? playback.context.type.toUpperCase()
+    : "TRACK";
+  const artistsLabel =
+    currentTrack && currentTrack.artists.length > 0
+      ? currentTrack.artists.join(", ")
+      : "Unavailable";
+  const sourceLabel =
+    currentTrack?.uri ??
+    playback?.context?.uri ??
+    "Playback metadata will appear here after Spotify starts playing.";
 
   return (
-    <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_18px_60px_rgba(24,24,27,0.05)]">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-2">
-            <Music className="h-4 w-4 text-zinc-500" />
-          </div>
-          <div>
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">
-              Now Playing
-            </p>
-            <p className="mt-2 text-sm font-semibold text-zinc-900">
-              {currentTrack ? currentTrack.name : "No active playback"}
-            </p>
-          </div>
-        </div>
-        <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-300">
-          {playback?.isPlaying ? "LIVE" : "IDLE"}
+    <div className="pointer-events-none absolute inset-y-6 right-0 z-30 hidden items-center lg:flex">
+      <button
+        type="button"
+        onClick={onToggle}
+        className="pointer-events-auto absolute right-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-2 rounded-l-2xl border border-r-0 border-zinc-200 bg-white px-3 py-3 text-zinc-500 shadow-[0_18px_50px_rgba(24,24,27,0.08)] transition hover:text-zinc-900"
+        aria-label={isOpen ? "Hide now playing panel" : "Show now playing panel"}
+      >
+        <Music className="h-4 w-4" />
+        <span className="text-[10px] font-black uppercase tracking-[0.18em]">
+          Now Playing
         </span>
-      </div>
+        {isOpen ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+      </button>
 
-      <div className="mt-4 flex gap-3">
-        {currentTrack?.imageUrl ? (
-          <Image
-            src={currentTrack.imageUrl}
-            alt={currentTrack.name}
-            width={160}
-            height={160}
-            className="h-20 w-20 rounded-xl object-cover"
-          />
-        ) : (
-          <div className="flex h-20 w-20 items-center justify-center rounded-xl border border-zinc-100 bg-zinc-50 text-xs text-zinc-400">
-            Cover
-          </div>
+      <aside
+        className={clsx(
+          "pointer-events-auto mr-14 flex h-full max-h-[calc(100dvh-7rem)] w-[24rem] flex-col overflow-hidden rounded-[1.75rem] border border-zinc-200 bg-white shadow-[0_28px_80px_rgba(24,24,27,0.12)] transition-transform duration-300 ease-out",
+          isOpen ? "translate-x-0" : "translate-x-[calc(100%+3.5rem)]",
         )}
+      >
+        <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-2">
+              <Music className="h-4 w-4 text-zinc-500" />
+            </div>
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">
+                Now Playing
+              </p>
+              <p className="mt-2 text-sm font-semibold text-zinc-900">
+                {currentTrack ? currentTrack.name : "No active playback"}
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onToggle}
+            className="rounded-xl border border-zinc-200 p-2 text-zinc-400 transition hover:border-zinc-400 hover:text-zinc-900"
+            aria-label="Close now playing panel"
+          >
+            <ChevronRight className="h-4 w-4" />
+          </button>
+        </div>
 
-        <div className="min-w-0 flex-1">
-          <p className="line-clamp-2 text-sm leading-6 text-zinc-500">
-            {currentTrack
-              ? currentTrack.artists.join(", ")
-              : "再生が始まるとジャケット画像と曲名をここに表示します。"}
-          </p>
-          <p className="mt-2 line-clamp-2 text-xs uppercase tracking-[0.18em] text-zinc-300">
-            {currentTrack?.albumName ?? "Spotify metadata"}
-          </p>
-          {currentTrack ? (
-            <div className="mt-3">
-              <div className="h-1.5 rounded-full bg-zinc-100">
+        <div className="flex-1 overflow-y-auto px-5 py-5">
+          <div className="rounded-[1.5rem] border border-zinc-200 bg-zinc-50/60 p-4">
+            {currentTrack?.imageUrl ? (
+              <Image
+                src={currentTrack.imageUrl}
+                alt={currentTrack.name}
+                width={720}
+                height={720}
+                className="h-64 w-full rounded-[1.25rem] object-cover"
+              />
+            ) : (
+              <div className="flex h-64 items-center justify-center rounded-[1.25rem] border border-zinc-100 bg-white text-sm text-zinc-400">
+                Artwork unavailable
+              </div>
+            )}
+
+            <div className="mt-4">
+              <p className="text-lg font-semibold leading-8 text-zinc-900">
+                {currentTrack ? currentTrack.name : "Playback will appear here"}
+              </p>
+              <p className="mt-2 text-sm leading-7 text-zinc-500">
+                {currentTrack
+                  ? artistsLabel
+                  : "Spotify の再生が始まると、曲情報とジャケット画像をこのパネルに表示します。"}
+              </p>
+              <p className="mt-3 text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-300">
+                {currentTrack?.albumName ?? "Spotify metadata"}
+              </p>
+            </div>
+
+            <div className="mt-5">
+              <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-[0.18em] text-zinc-400">
+                <span>{playbackStatus}</span>
+                <span>{contextLabel}</span>
+              </div>
+              <div className="mt-3 h-2 rounded-full bg-zinc-100">
                 <div
-                  className="h-1.5 rounded-full bg-zinc-900"
+                  className="h-2 rounded-full bg-zinc-900 transition-[width] duration-200"
                   style={{
                     width: `${progressWidth(
                       displayProgressMs,
-                      currentTrack.durationMs,
+                      currentTrack?.durationMs,
                     )}%`,
                   }}
                 />
               </div>
               <div className="mt-2 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-300">
                 <span>{formatDuration(displayProgressMs)}</span>
-                <span>{formatDuration(currentTrack.durationMs)}</span>
+                <span>{formatDuration(currentTrack?.durationMs ?? 0)}</span>
               </div>
             </div>
-          ) : null}
+          </div>
+
+          <section className="mt-5 rounded-[1.5rem] border border-zinc-200 bg-white px-4 py-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">
+              Session Details
+            </p>
+            <div className="mt-3">
+              <DetailRow label="Account" value={accountLabel} />
+              <DetailRow label="Device" value={deviceLabel} />
+              <DetailRow label="SDK" value={sdkConnected ? "Connected" : "Offline"} />
+              <DetailRow label="Volume" value={volumeLabel} />
+            </div>
+          </section>
+
+          <section className="mt-5 rounded-[1.5rem] border border-zinc-200 bg-white px-4 py-3">
+            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">
+              Track Details
+            </p>
+            <div className="mt-3">
+              <DetailRow label="Album" value={currentTrack?.albumName ?? "Unavailable"} />
+              <DetailRow label="Artists" value={artistsLabel} />
+              <DetailRow label="Source" value={sourceLabel} />
+            </div>
+          </section>
         </div>
-      </div>
+      </aside>
     </div>
   );
 }
@@ -285,6 +488,13 @@ function SettingsPanel({
   llmConfigured,
   deviceReady,
   sdkConnected,
+  spotifyConfig,
+  isSpotifyConfigLoading,
+  isSpotifyConfigSaving,
+  spotifyConfigError,
+  onSpotifyConfigChange,
+  onSpotifyConfigSave,
+  onLogin,
   onClose,
   onLogout,
 }: {
@@ -293,6 +503,16 @@ function SettingsPanel({
   llmConfigured: boolean;
   deviceReady: boolean;
   sdkConnected: boolean;
+  spotifyConfig: SpotifyConfigDto | null;
+  isSpotifyConfigLoading: boolean;
+  isSpotifyConfigSaving: boolean;
+  spotifyConfigError: string | null;
+  onSpotifyConfigChange: (
+    field: "clientId" | "clientSecret",
+    value: string,
+  ) => void;
+  onSpotifyConfigSave: () => void;
+  onLogin: () => void;
   onClose: () => void;
   onLogout: () => void;
 }) {
@@ -328,34 +548,97 @@ function SettingsPanel({
 
           <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
             <section className="rounded-2xl border border-zinc-200 bg-zinc-50/60 p-4">
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-400">
-                Spotify Account
-              </p>
-              <p className="mt-3 text-sm font-semibold text-zinc-900">
-                {authenticated ? displayName ?? "Connected Account" : "Not connected"}
-              </p>
-              <p className="mt-2 text-sm leading-7 text-zinc-500">
-                {authenticated
-                  ? "Spotify アカウントは接続済みです。必要ならここから接続解除できます。"
-                  : "Spotify を接続すると、チャットから曲の検索や再生変更ができるようになります。"}
-              </p>
-              <div className="mt-4">
-                {authenticated ? (
+              <div className="flex items-center gap-3">
+                <div className="rounded-2xl border border-zinc-200 bg-white p-2.5">
+                  <SpotifyGlyph className="h-6 w-6" />
+                </div>
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-400">
+                    Spotify Account
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-zinc-900">
+                    {authenticated ? displayName ?? "Connected Account" : "Not connected"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 flex gap-3">
+                <button
+                  type="button"
+                  onClick={onLogin}
+                  disabled={!spotifyConfig?.configured || isSpotifyConfigSaving}
+                  className="inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  <SpotifyGlyph className="h-4 w-4" />
+                  Connect
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onLogout}
+                  disabled={!authenticated}
+                  className="rounded-xl border border-zinc-200 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  Disconnect
+                </button>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {isSpotifyConfigLoading ? (
+                  <p className="text-sm leading-6 text-zinc-500">
+                    Spotify 設定を読み込み中です...
+                  </p>
+                ) : null}
+
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-400">
+                    Client ID
+                  </span>
+                  <input
+                    type="text"
+                    value={spotifyConfig?.clientId ?? ""}
+                    disabled={isSpotifyConfigLoading || isSpotifyConfigSaving}
+                    onChange={(event) =>
+                      onSpotifyConfigChange("clientId", event.target.value)
+                    }
+                    placeholder="Spotify client id"
+                    className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-300 focus:border-zinc-400 focus:outline-none"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-400">
+                    Client Secret
+                  </span>
+                  <input
+                    type="password"
+                    value={spotifyConfig?.clientSecret ?? ""}
+                    disabled={isSpotifyConfigLoading || isSpotifyConfigSaving}
+                    onChange={(event) =>
+                      onSpotifyConfigChange("clientSecret", event.target.value)
+                    }
+                    placeholder="Spotify client secret"
+                    className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-300 focus:border-zinc-400 focus:outline-none"
+                  />
+                </label>
+
+                {spotifyConfigError ? (
+                  <p className="text-sm leading-6 text-rose-600">{spotifyConfigError}</p>
+                ) : null}
+
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs leading-6 text-zinc-500">
+                    `.env.local` に保存します。secret は入力欄では見えません。
+                  </p>
                   <button
                     type="button"
-                    onClick={onLogout}
-                    className="rounded-xl border border-zinc-200 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-900"
+                    onClick={onSpotifyConfigSave}
+                    disabled={isSpotifyConfigLoading || isSpotifyConfigSaving}
+                    className="shrink-0 rounded-xl border border-zinc-200 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-700 transition-colors hover:border-zinc-400 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-35"
                   >
-                    Disconnect Spotify
+                    {isSpotifyConfigSaving ? "Saving..." : "Save"}
                   </button>
-                ) : (
-                  <a
-                    href="/api/auth/spotify/login"
-                    className="inline-flex rounded-xl bg-zinc-900 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-white transition-colors hover:bg-zinc-800"
-                  >
-                    Connect Spotify
-                  </a>
-                )}
+                </div>
               </div>
             </section>
 
@@ -366,31 +649,33 @@ function SettingsPanel({
               <div className="mt-4 space-y-3 text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-400">
                 <div className="flex items-center justify-between">
                   <span>OAuth</span>
-                  <span>{authenticated ? "READY" : "WAITING"}</span>
+                  <StatusPill
+                    label={authenticated ? "READY" : "WAITING"}
+                    tone={authenticated ? "success" : "warning"}
+                  />
                 </div>
                 <div className="flex items-center justify-between">
                   <span>LLM Agent</span>
-                  <span>{llmConfigured ? "ARMED" : "LOCKED"}</span>
+                  <StatusPill
+                    label={llmConfigured ? "ARMED" : "LOCKED"}
+                    tone={llmConfigured ? "success" : "warning"}
+                  />
                 </div>
                 <div className="flex items-center justify-between">
                   <span>Browser Device</span>
-                  <span>{deviceReady ? "ONLINE" : "PENDING"}</span>
+                  <StatusPill
+                    label={deviceReady ? "ONLINE" : "PENDING"}
+                    tone={deviceReady ? "success" : "warning"}
+                  />
                 </div>
                 <div className="flex items-center justify-between">
                   <span>Web SDK</span>
-                  <span>{sdkConnected ? "SYNCED" : "OFFLINE"}</span>
+                  <StatusPill
+                    label={sdkConnected ? "SYNCED" : "OFFLINE"}
+                    tone={sdkConnected ? "success" : "offline"}
+                  />
                 </div>
               </div>
-            </section>
-
-            <section className="rounded-2xl border border-zinc-200 bg-white p-4">
-              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-400">
-                Notes
-              </p>
-              <p className="mt-3 text-sm leading-7 text-zinc-500">
-                再生できないときは、Spotify Premium とブラウザ再生デバイスの準備を確認してください。
-                トークン期限切れ時は自動で refresh token を使って更新します。
-              </p>
             </section>
           </div>
         </div>
@@ -404,7 +689,11 @@ export function HomeShell({
 }: {
   initialAuthError: string | null;
 }) {
-  const [hasMounted, setHasMounted] = useState(false);
+  const hasMounted = useSyncExternalStore(
+    () => () => {},
+    () => true,
+    () => false,
+  );
   const [session, setSession] = useState<SessionDto>(EMPTY_SESSION);
   const [sdkStatus, setSdkStatus] = useState<SdkStatus>({
     connected: false,
@@ -417,12 +706,13 @@ export function HomeShell({
   );
   const [isPending, startTransition] = useTransition();
   const [isClearingHistory, startClearingHistory] = useTransition();
+  const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(true);
+  const [spotifyConfig, setSpotifyConfig] = useState<SpotifyConfigDto | null>(null);
+  const [isSpotifyConfigLoading, setIsSpotifyConfigLoading] = useState(false);
+  const [isSpotifyConfigSaving, setIsSpotifyConfigSaving] = useState(false);
+  const [spotifyConfigError, setSpotifyConfigError] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    setHasMounted(true);
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -511,6 +801,84 @@ export function HomeShell({
     setDraft(prompt);
   }
 
+  async function loadSpotifyConfig() {
+    setIsSpotifyConfigLoading(true);
+    setSpotifyConfigError(null);
+
+    try {
+      const data = await fetchSpotifyConfig();
+      setSpotifyConfig(data);
+    } catch (error) {
+      console.error(error);
+      setSpotifyConfigError("Spotify 設定を読み込めませんでした。");
+    } finally {
+      setIsSpotifyConfigLoading(false);
+    }
+  }
+
+  function handleOpenSettings() {
+    setIsSettingsOpen(true);
+    void loadSpotifyConfig();
+  }
+
+  function handleSpotifyConfigChange(
+    field: "clientId" | "clientSecret",
+    value: string,
+  ) {
+    setSpotifyConfig((current) => {
+      const next = current ?? {
+        clientId: "",
+        clientSecret: "",
+        configured: false,
+      };
+      const updated = {
+        ...next,
+        [field]: value,
+      };
+
+      return {
+        ...updated,
+        configured: Boolean(
+          updated.clientId.trim() && updated.clientSecret.trim(),
+        ),
+      };
+    });
+    setSpotifyConfigError(null);
+  }
+
+  async function handleSpotifyConfigSave() {
+    const payload = {
+      clientId: spotifyConfig?.clientId ?? "",
+      clientSecret: spotifyConfig?.clientSecret ?? "",
+    };
+
+    setIsSpotifyConfigSaving(true);
+    setSpotifyConfigError(null);
+
+    try {
+      const data = await updateSpotifyConfig(payload);
+      setSpotifyConfig(data);
+      setNotice("Spotify の client 設定を保存しました。");
+      await reloadSessionFromServer();
+    } catch (error) {
+      console.error(error);
+      setSpotifyConfigError("Spotify 設定の保存に失敗しました。");
+    } finally {
+      setIsSpotifyConfigSaving(false);
+    }
+  }
+
+  function handleSpotifyLogin() {
+    if (!spotifyConfig?.configured) {
+      setSpotifyConfigError(
+        "Connect の前に client id と client secret を保存してください。",
+      );
+      return;
+    }
+
+    window.location.href = "/api/auth/spotify/login";
+  }
+
   async function reloadSessionFromServer() {
     try {
       const data = await fetchSessionState();
@@ -545,7 +913,6 @@ export function HomeShell({
         await fetch("/api/auth/logout", {
           method: "POST",
         });
-        setSession(EMPTY_SESSION);
         setSdkStatus({
           connected: false,
           deviceId: null,
@@ -553,6 +920,7 @@ export function HomeShell({
         });
         setIsSettingsOpen(false);
         setNotice("Spotify の接続を解除しました。");
+        await reloadSessionFromServer();
       })();
     });
   }
@@ -721,7 +1089,7 @@ export function HomeShell({
 
           <button
             type="button"
-            onClick={() => setIsSettingsOpen(true)}
+            onClick={handleOpenSettings}
             className="inline-flex items-center justify-center rounded-xl border border-zinc-200 p-2.5 text-zinc-400 transition-colors hover:border-zinc-400 hover:text-zinc-900"
             aria-label="Open settings"
           >
@@ -732,20 +1100,25 @@ export function HomeShell({
 
       <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {hasMounted ? (
-          <div className="pointer-events-none absolute left-4 top-6 hidden w-72 2xl:block">
-            <NowPlayingPanel currentTrack={currentTrack} playback={session.playback} />
-          </div>
+          <NowPlayingDrawer
+            authenticated={session.authenticated}
+            displayName={session.profile?.displayName}
+            sdkConnected={sdkStatus.connected}
+            isOpen={isNowPlayingOpen}
+            onToggle={() => setIsNowPlayingOpen((current) => !current)}
+            currentTrack={currentTrack}
+            playback={session.playback}
+          />
         ) : null}
 
         <div
           ref={scrollRef}
-          className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-36 pt-8 md:px-6 md:pb-40 md:pt-10"
+          className={clsx(
+            "no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-36 pt-8 md:px-6 md:pb-40 md:pt-10 lg:transition-[padding] lg:duration-300",
+            hasMounted && isNowPlayingOpen ? "lg:pr-[27rem]" : "lg:pr-20",
+          )}
         >
           <div className="mx-auto max-w-3xl space-y-8">
-            <div className="2xl:hidden">
-              <NowPlayingPanel currentTrack={currentTrack} playback={session.playback} />
-            </div>
-
             {notice ? (
               <div className="rounded-2xl border border-zinc-200 bg-zinc-50 px-4 py-3 text-sm leading-7 text-zinc-700">
                 {notice}
@@ -855,7 +1228,12 @@ export function HomeShell({
           </div>
         </div>
 
-        <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-white via-white/96 to-transparent px-4 pb-8 pt-20 md:px-6">
+        <div
+          className={clsx(
+            "pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-white via-white/96 to-transparent px-4 pb-8 pt-20 md:px-6 lg:transition-[padding] lg:duration-300",
+            hasMounted && isNowPlayingOpen ? "lg:pr-[27rem]" : "lg:pr-20",
+          )}
+        >
           <div className="pointer-events-auto mx-auto max-w-3xl">
             <form
               onSubmit={handleSubmit}
@@ -908,6 +1286,13 @@ export function HomeShell({
           llmConfigured={session.llmConfigured}
           deviceReady={session.deviceReady}
           sdkConnected={sdkStatus.connected}
+          spotifyConfig={spotifyConfig}
+          isSpotifyConfigLoading={isSpotifyConfigLoading}
+          isSpotifyConfigSaving={isSpotifyConfigSaving}
+          spotifyConfigError={spotifyConfigError}
+          onSpotifyConfigChange={handleSpotifyConfigChange}
+          onSpotifyConfigSave={handleSpotifyConfigSave}
+          onLogin={handleSpotifyLogin}
           onClose={() => setIsSettingsOpen(false)}
           onLogout={handleLogout}
         />
