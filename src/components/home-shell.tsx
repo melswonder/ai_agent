@@ -208,28 +208,22 @@ function DetailRow({
   );
 }
 
-function SpotifyGlyph({ className }: { className?: string }) {
+function SpotifyLogo({
+  className,
+  alt = "Spotify",
+}: {
+  className?: string;
+  alt?: string;
+}) {
   return (
-    <svg
-      viewBox="0 0 168 168"
-      aria-hidden="true"
+    <Image
+      src="/assets/spotify-full-logo-green.png"
+      alt={alt}
+      width={823}
+      height={225}
       className={className}
-      fill="none"
-    >
-      <circle cx="84" cy="84" r="84" fill="#1DB954" />
-      <path
-        d="M118.8 116.1a7 7 0 0 1-9.6 2.3c-26.4-16.1-59.7-19.7-99-10.8a7 7 0 0 1-3.1-13.7c43.1-9.8 80.2-5.7 109.4 12.1a7 7 0 0 1 2.3 10.1Z"
-        fill="#081C10"
-      />
-      <path
-        d="M132.5 85.7a8.9 8.9 0 0 1-12.2 3c-30.2-18.5-76.2-23.8-111.9-12.8a8.9 8.9 0 1 1-5.3-17c40.8-12.8 92.1-6.8 126.5 14.2a8.9 8.9 0 0 1 2.9 12.6Z"
-        fill="#081C10"
-      />
-      <path
-        d="M133.7 54.8C97.3 33.2 37.3 31.2 2.7 41.8c-5.6 1.7-11.6-1.4-13.3-7.1-1.8-5.7 1.4-11.6 7.1-13.4 39.7-12.1 105.5-9.7 147.9 15.5 5.1 3 6.7 9.6 3.7 14.7-2.9 5-9.5 6.7-14.4 3.3Z"
-        fill="#081C10"
-      />
-    </svg>
+      priority={false}
+    />
   );
 }
 
@@ -549,8 +543,8 @@ function SettingsPanel({
           <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
             <section className="rounded-2xl border border-zinc-200 bg-zinc-50/60 p-4">
               <div className="flex items-center gap-3">
-                <div className="rounded-2xl border border-zinc-200 bg-white p-2.5">
-                  <SpotifyGlyph className="h-6 w-6" />
+                <div className="rounded-2xl border border-zinc-200 bg-white px-3 py-2.5">
+                  <SpotifyLogo className="h-6 w-auto" />
                 </div>
                 <div>
                   <p className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-400">
@@ -569,7 +563,7 @@ function SettingsPanel({
                   disabled={!spotifyConfig?.configured || isSpotifyConfigSaving}
                   className="inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-35"
                 >
-                  <SpotifyGlyph className="h-4 w-4" />
+                  <SpotifyLogo className="h-4 w-auto" alt="" />
                   Connect
                 </button>
 
