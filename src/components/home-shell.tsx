@@ -152,24 +152,6 @@ function progressWidth(progressMs: number, durationMs: number | null | undefined
   );
 }
 
-function statusLabel({
-  booting,
-  isPending,
-}: {
-  booting: boolean;
-  isPending: boolean;
-}) {
-  if (booting) {
-    return "BOOTING";
-  }
-
-  if (isPending) {
-    return "EXECUTING";
-  }
-
-  return "STANDBY";
-}
-
 function NowPlayingPanel({
   currentTrack,
   playback,
@@ -430,7 +412,6 @@ export function HomeShell({
     error: null,
   });
   const [draft, setDraft] = useState("");
-  const [booting, setBooting] = useState(true);
   const [notice, setNotice] = useState<string | null>(
     authErrorMessage(initialAuthError),
   );
@@ -458,10 +439,6 @@ export function HomeShell({
 
         if (!cancelled) {
           setNotice("初期状態を取得できませんでした。");
-        }
-      } finally {
-        if (!cancelled) {
-          setBooting(false);
         }
       }
     })();
@@ -528,7 +505,6 @@ export function HomeShell({
 
   const currentTrack = session.playback?.item ?? null;
   const isBusy = isPending || isClearingHistory;
-  const operationState = statusLabel({ booting, isPending: isBusy });
   const visibleMessages = session.messages;
 
   function handlePromptClick(prompt: string) {
@@ -703,7 +679,7 @@ export function HomeShell({
   }
 
   return (
-    <div className="min-h-screen bg-white text-zinc-600">
+    <div className="flex h-dvh min-h-0 flex-col overflow-hidden bg-white text-zinc-600">
       <SpotifyWebPlayerBridge
         enabled={session.authenticated}
         onSdkStatusChange={(status) => {
@@ -730,27 +706,9 @@ export function HomeShell({
           <span className="text-[10px] font-black uppercase tracking-[0.3em] text-zinc-900">
             AI Administration Portal
           </span>
-          <div className="hidden h-4 w-px bg-zinc-100 md:block" />
-          <span className="hidden items-center gap-2 text-[9px] font-bold text-zinc-400 md:inline-flex">
-            <span
-              className={clsx(
-                "h-1.5 w-1.5 rounded-full",
-                operationState === "EXECUTING"
-                  ? "animate-pulse bg-zinc-900"
-                  : "bg-zinc-300",
-              )}
-            />
-            {operationState}
-          </span>
         </div>
 
-        <div className="flex items-center gap-2 md:gap-6">
-          <div className="hidden gap-4 text-[9px] font-mono text-zinc-400 md:flex">
-            <span>PING: 4ms</span>
-            <span>NODE: SP-01</span>
-            <span>{session.authenticated ? "SPOTIFY: LINKED" : "SPOTIFY: OPEN"}</span>
-          </div>
-
+        <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={handleClearHistory}
@@ -772,7 +730,7 @@ export function HomeShell({
         </div>
       </nav>
 
-      <main className="relative flex flex-1 flex-col overflow-hidden">
+      <main className="relative flex min-h-0 flex-1 flex-col overflow-hidden">
         {hasMounted ? (
           <div className="pointer-events-none absolute left-4 top-6 hidden w-72 2xl:block">
             <NowPlayingPanel currentTrack={currentTrack} playback={session.playback} />
@@ -781,7 +739,7 @@ export function HomeShell({
 
         <div
           ref={scrollRef}
-          className="no-scrollbar flex-1 overflow-y-auto px-4 pb-36 pt-8 md:px-6 md:pb-40 md:pt-10"
+          className="no-scrollbar min-h-0 flex-1 overflow-y-auto px-4 pb-36 pt-8 md:px-6 md:pb-40 md:pt-10"
         >
           <div className="mx-auto max-w-3xl space-y-8">
             <div className="2xl:hidden">
