@@ -10,10 +10,32 @@ from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from backend.app.agent import run_control_agent
-from backend.app.config import get_settings, get_spotify_env_values, save_spotify_env_values
+from backend.app.config import (
+    get_google_env_values,
+    get_settings,
+    get_spotify_env_values,
+    save_google_env_values,
+    save_spotify_env_values,
+)
 from backend.app.db import get_db
-from backend.app.models import ChatMessageModel, SessionModel, SpotifyConnectionModel
-from backend.app.schemas import ChatPayload, DevicePayload, SpotifyConfigPayload
+from backend.app.google import (
+    build_google_authorize_url,
+    exchange_google_code_for_tokens,
+    fetch_google_profile,
+    list_upcoming_events,
+)
+from backend.app.models import (
+    ChatMessageModel,
+    GoogleConnectionModel,
+    SessionModel,
+    SpotifyConnectionModel,
+)
+from backend.app.schemas import (
+    ChatPayload,
+    DevicePayload,
+    GoogleConfigPayload,
+    SpotifyConfigPayload,
+)
 from backend.app.security import encrypt_string
 from backend.app.session import (
     attach_session_cookie,
@@ -45,15 +67,21 @@ def is_llm_configured() -> bool:
     return get_settings().llm_configured
 
 
+def is_google_configured() -> bool:
+    return get_settings().google_configured
+
+
 def create_empty_state() -> dict[str, Any]:
     settings = get_settings()
     return {
         "authenticated": False,
         "spotifyConfigured": settings.spotify_configured,
+        "googleConfigured": settings.google_configured,
         "llmConfigured": settings.llm_configured,
         "deviceReady": False,
         "callbackUrl": settings.spotify_callback_url,
         "profile": None,
+        "googleProfile": None,
         "messages": [],
         "playback": None,
     }
@@ -161,6 +189,50 @@ def update_spotify_config(payload: SpotifyConfigPayload) -> Response:
     )
 
 
+@app.get("/api/config/google")
+def get_google_config(request: Request, db: Session = Depends(get_db)) -> Response:
+    values = get_google_env_values()
+    settings = get_settings()
+    session_id = get_session_id_from_request(request)
+    connection = None
+    if session_id:
+        connection = db.scalar(
+            select(GoogleConnectionModel).where(
+                GoogleConnectionModel.session_id == session_id
+            )
+        )
+
+    return JSONResponse(
+        {
+            "clientId": values["clientId"],
+            "clientSecret": values["clientSecret"],
+            "configured": settings.google_configured,
+            "connected": bool(connection),
+            "profile": (
+                {
+                    "displayName": connection.display_name,
+                    "email": connection.email,
+                }
+                if connection
+                else None
+            ),
+        }
+    )
+
+
+@app.post("/api/config/google")
+def update_google_config(payload: GoogleConfigPayload) -> Response:
+    values = save_google_env_values(payload.clientId, payload.clientSecret)
+    settings = get_settings()
+    return JSONResponse(
+        {
+            "clientId": values["clientId"],
+            "clientSecret": values["clientSecret"],
+            "configured": settings.google_configured,
+        }
+    )
+
+
 @app.get("/api/auth/spotify/login")
 def spotify_login(request: Request, db: Session = Depends(get_db)) -> Response:
     if not is_spotify_configured():
@@ -192,6 +264,37 @@ def spotify_login(request: Request, db: Session = Depends(get_db)) -> Response:
         build_spotify_authorize_url(state, challenge),
         status_code=307,
     )
+    attach_session_cookie(response, session_id)
+    return response
+
+
+@app.get("/api/auth/google/login")
+def google_login(request: Request, db: Session = Depends(get_db)) -> Response:
+    if not is_google_configured():
+        return JSONResponse(
+            {"error": "Google credentials are not configured on the server."},
+            status_code=503,
+        )
+
+    session_id = get_or_create_session_id(db, request)
+    state = generate_id("google_state")
+
+    session = db.scalar(select(SessionModel).where(SessionModel.id == session_id))
+    if not session:
+        session = SessionModel(
+            id=session_id,
+            created_at=datetime.now(UTC),
+            updated_at=datetime.now(UTC),
+        )
+        db.add(session)
+
+    session.oauth_state = state
+    session.oauth_verifier = None
+    session.updated_at = datetime.now(UTC)
+    db.add(session)
+    db.commit()
+
+    response = RedirectResponse(build_google_authorize_url(state), status_code=307)
     attach_session_cookie(response, session_id)
     return response
 
@@ -275,6 +378,73 @@ def spotify_callback(request: Request, db: Session = Depends(get_db)) -> Respons
         return redirect_with_error("token_exchange_failed")
 
 
+@app.get("/callbacks/google")
+def google_callback(request: Request, db: Session = Depends(get_db)) -> Response:
+    if not is_google_configured():
+        return redirect_with_error("google_config_missing")
+
+    auth_error = request.query_params.get("error")
+    code = request.query_params.get("code")
+    state = request.query_params.get("state")
+
+    if auth_error:
+        return redirect_with_error(auth_error)
+
+    if not code or not state:
+        return redirect_with_error("oauth_state_invalid")
+
+    session = db.scalar(select(SessionModel).where(SessionModel.oauth_state == state))
+    if not session:
+        return redirect_with_error("oauth_state_invalid")
+
+    try:
+        tokens = exchange_google_code_for_tokens(code)
+        profile = fetch_google_profile(tokens["access_token"])
+        encrypted_access_token = encrypt_string(tokens["access_token"])
+        encrypted_refresh_token = encrypt_string(tokens.get("refresh_token", ""))
+        access_token_expires_at = datetime.now(UTC) + timedelta(
+            seconds=tokens["expires_in"]
+        )
+
+        db.execute(
+            delete(GoogleConnectionModel).where(
+                or_(
+                    GoogleConnectionModel.session_id == session.id,
+                    GoogleConnectionModel.google_user_id == profile["sub"],
+                )
+            )
+        )
+
+        db.add(
+            GoogleConnectionModel(
+                id=generate_id("gconn"),
+                session_id=session.id,
+                google_user_id=profile["sub"],
+                email=profile.get("email"),
+                display_name=profile.get("name"),
+                scope=tokens.get("scope", ""),
+                encrypted_access_token=encrypted_access_token,
+                encrypted_refresh_token=encrypted_refresh_token,
+                access_token_expires_at=access_token_expires_at,
+                created_at=datetime.now(UTC),
+                updated_at=datetime.now(UTC),
+            )
+        )
+        session.oauth_state = None
+        session.oauth_verifier = None
+        session.updated_at = datetime.now(UTC)
+        db.add(session)
+        db.commit()
+
+        response = RedirectResponse(get_settings().app_url, status_code=307)
+        attach_session_cookie(response, session.id)
+        return response
+    except Exception:
+        logger.exception("Google callback failed")
+        db.rollback()
+        return redirect_with_error("token_exchange_failed")
+
+
 @app.post("/api/auth/logout")
 def logout(request: Request, db: Session = Depends(get_db)) -> Response:
     session_id = get_session_id_from_request(request)
@@ -289,6 +459,20 @@ def logout(request: Request, db: Session = Depends(get_db)) -> Response:
     response = JSONResponse({"ok": True})
     clear_session_cookie(response)
     return response
+
+
+@app.post("/api/auth/google/logout")
+def google_logout(request: Request, db: Session = Depends(get_db)) -> Response:
+    session_id = get_session_id_from_request(request)
+    if session_id:
+        db.execute(
+            delete(GoogleConnectionModel).where(
+                GoogleConnectionModel.session_id == session_id
+            )
+        )
+        db.commit()
+
+    return JSONResponse({"ok": True})
 
 
 @app.get("/api/session")
@@ -306,6 +490,11 @@ def get_session_state(request: Request, db: Session = Depends(get_db)) -> Respon
             SpotifyConnectionModel.session_id == session_id
         )
     )
+    google_connection = db.scalar(
+        select(GoogleConnectionModel).where(
+            GoogleConnectionModel.session_id == session_id
+        )
+    )
     messages = get_conversation(db, session_id)
     playback = None
     if connection:
@@ -318,6 +507,7 @@ def get_session_state(request: Request, db: Session = Depends(get_db)) -> Respon
         {
             "authenticated": bool(connection),
             "spotifyConfigured": is_spotify_configured(),
+            "googleConfigured": is_google_configured(),
             "llmConfigured": is_llm_configured(),
             "deviceReady": bool(connection and connection.player_device_id),
             "callbackUrl": get_settings().spotify_callback_url,
@@ -326,6 +516,12 @@ def get_session_state(request: Request, db: Session = Depends(get_db)) -> Respon
                 "spotifyUserId": connection.spotify_user_id,
             }
             if connection
+            else None,
+            "googleProfile": {
+                "displayName": google_connection.display_name,
+                "email": google_connection.email,
+            }
+            if google_connection
             else None,
             "messages": to_chat_message_dto(messages),
             "playback": playback,
@@ -413,6 +609,27 @@ def clear_chat_history(request: Request, db: Session = Depends(get_db)) -> Respo
     return JSONResponse({"ok": True, "deletedCount": deleted.rowcount or 0})
 
 
+@app.get("/api/google/calendar/events")
+def get_google_calendar_events(
+    request: Request,
+    db: Session = Depends(get_db),
+) -> Response:
+    session_id = get_session_id_from_request(request)
+    if not session_id:
+        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+
+    connection = db.scalar(
+        select(GoogleConnectionModel).where(
+            GoogleConnectionModel.session_id == session_id
+        )
+    )
+    if not connection:
+        return JSONResponse({"error": "Google Calendar is not connected."}, status_code=401)
+
+    events = list_upcoming_events(db, session_id)
+    return JSONResponse({"events": events})
+
+
 @app.post("/api/chat")
 def chat(
     payload: ChatPayload,
@@ -432,6 +649,11 @@ def chat(
             SpotifyConnectionModel.session_id == session_id
         )
     )
+    google_connection = db.scalar(
+        select(GoogleConnectionModel).where(
+            GoogleConnectionModel.session_id == session_id
+        )
+    )
 
     history = get_recent_conversation(db, session_id, 18)
     save_chat_message(db, session_id, "USER", payload.message)
@@ -446,6 +668,7 @@ def chat(
             ],
             payload.message,
             spotify_connected=bool(connection),
+            google_connected=bool(google_connection),
         )
         assistant_record = save_chat_message(
             db,

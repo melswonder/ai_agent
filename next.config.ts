@@ -33,6 +33,10 @@ const nextConfig: NextConfig = {
           source: "/callbacks",
           destination: `${pythonBackendUrl}/callbacks`,
         },
+        {
+          source: "/callbacks/:path*",
+          destination: `${pythonBackendUrl}/callbacks/:path*`,
+        },
       ],
     };
   },

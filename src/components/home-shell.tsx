@@ -13,6 +13,7 @@ import {
 import {
   Activity,
   Bot,
+  CalendarDays,
   ChevronLeft,
   ChevronRight,
   Cpu,
@@ -28,20 +29,24 @@ import {
 } from "lucide-react";
 import type {
   ChatResponseDto,
+  GoogleConfigDto,
   PlaybackDto,
   SdkStatus,
   SessionDto,
   SpotifyConfigDto,
 } from "@/lib/contracts";
+import { MarkdownMessage } from "@/components/markdown-message";
 import { SpotifyWebPlayerBridge } from "@/components/spotify-web-player-bridge";
 
 const EMPTY_SESSION: SessionDto = {
   authenticated: false,
   spotifyConfigured: false,
+  googleConfigured: false,
   llmConfigured: false,
   deviceReady: false,
   callbackUrl: "https://127.0.0.1:8000/callbacks",
   profile: null,
+  googleProfile: null,
   messages: [],
   playback: null,
 };
@@ -129,6 +134,39 @@ async function updateSpotifyConfig(payload: {
   }
 
   return (await response.json()) as SpotifyConfigDto;
+}
+
+async function fetchGoogleConfig() {
+  const response = await fetch("/api/config/google", {
+    cache: "no-store",
+  });
+
+  if (!response.ok) {
+    const message = await readErrorText(response);
+    throw new Error(message || "Google 設定の取得に失敗しました。");
+  }
+
+  return (await response.json()) as GoogleConfigDto;
+}
+
+async function updateGoogleConfig(payload: {
+  clientId: string;
+  clientSecret: string;
+}) {
+  const response = await fetch("/api/config/google", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    const message = await readErrorText(response);
+    throw new Error(message || "Google 設定の保存に失敗しました。");
+  }
+
+  return (await response.json()) as GoogleConfigDto;
 }
 
 async function readErrorText(response: Response) {
@@ -224,6 +262,27 @@ function SpotifyLogo({
       className={className}
       priority={false}
     />
+  );
+}
+
+function GoogleCalendarBadge({ className }: { className?: string }) {
+  return (
+    <div
+      className={clsx(
+        "flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3 py-2",
+        className,
+      )}
+    >
+      <div className="rounded-lg bg-blue-50 p-1.5 text-blue-600">
+        <CalendarDays className="h-4 w-4" />
+      </div>
+      <div className="min-w-0">
+        <p className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-400">
+          Google
+        </p>
+        <p className="text-xs font-semibold text-zinc-900">Calendar</p>
+      </div>
+    </div>
   );
 }
 
@@ -476,36 +535,57 @@ function NowPlayingDrawer({
 function SettingsPanel({
   authenticated,
   displayName,
+  googleProfile,
   llmConfigured,
   deviceReady,
   sdkConnected,
   spotifyConfig,
+  googleConfig,
   isSpotifyConfigLoading,
+  isGoogleConfigLoading,
   isSpotifyConfigSaving,
+  isGoogleConfigSaving,
   spotifyConfigError,
+  googleConfigError,
   onSpotifyConfigChange,
   onSpotifyConfigSave,
+  onGoogleConfigChange,
+  onGoogleConfigSave,
   onLogin,
+  onGoogleLogin,
   onClose,
   onLogout,
+  onGoogleLogout,
 }: {
   authenticated: boolean;
   displayName: string | null | undefined;
+  googleProfile: { displayName: string | null; email: string | null } | null | undefined;
   llmConfigured: boolean;
   deviceReady: boolean;
   sdkConnected: boolean;
   spotifyConfig: SpotifyConfigDto | null;
+  googleConfig: GoogleConfigDto | null;
   isSpotifyConfigLoading: boolean;
+  isGoogleConfigLoading: boolean;
   isSpotifyConfigSaving: boolean;
+  isGoogleConfigSaving: boolean;
   spotifyConfigError: string | null;
+  googleConfigError: string | null;
   onSpotifyConfigChange: (
     field: "clientId" | "clientSecret",
     value: string,
   ) => void;
   onSpotifyConfigSave: () => void;
+  onGoogleConfigChange: (
+    field: "clientId" | "clientSecret",
+    value: string,
+  ) => void;
+  onGoogleConfigSave: () => void;
   onLogin: () => void;
+  onGoogleLogin: () => void;
   onClose: () => void;
   onLogout: () => void;
+  onGoogleLogout: () => void;
 }) {
   return (
     <div className="fixed inset-0 z-40">
@@ -560,7 +640,6 @@ function SettingsPanel({
                   disabled={!spotifyConfig?.configured || isSpotifyConfigSaving}
                   className="inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-35"
                 >
-                  <SpotifyLogo className="h-4 w-auto" alt="" />
                   Connect
                 </button>
 
@@ -633,6 +712,103 @@ function SettingsPanel({
               </div>
             </section>
 
+            <section className="rounded-2xl border border-zinc-200 bg-zinc-50/60 p-4">
+              <div className="flex items-center gap-3">
+                <GoogleCalendarBadge />
+                <div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-400">
+                    Google Calendar
+                  </p>
+                  <p className="mt-2 text-sm font-semibold text-zinc-900">
+                    {googleConfig?.connected
+                      ? googleProfile?.displayName ??
+                        googleProfile?.email ??
+                        "Connected Calendar"
+                      : "Not connected"}
+                  </p>
+                </div>
+              </div>
+
+              <div className="mt-4 flex gap-3">
+                <button
+                  type="button"
+                  onClick={onGoogleLogin}
+                  disabled={!googleConfig?.configured || isGoogleConfigSaving}
+                  className="inline-flex items-center gap-2 rounded-xl bg-zinc-900 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  <CalendarDays className="h-4 w-4" />
+                  Connect
+                </button>
+
+                <button
+                  type="button"
+                  onClick={onGoogleLogout}
+                  disabled={!googleConfig?.connected}
+                  className="rounded-xl border border-zinc-200 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-35"
+                >
+                  Disconnect
+                </button>
+              </div>
+
+              <div className="mt-5 space-y-3">
+                {isGoogleConfigLoading ? (
+                  <p className="text-sm leading-6 text-zinc-500">
+                    Google 設定を読み込み中です...
+                  </p>
+                ) : null}
+
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-400">
+                    Client ID
+                  </span>
+                  <input
+                    type="text"
+                    value={googleConfig?.clientId ?? ""}
+                    disabled={isGoogleConfigLoading || isGoogleConfigSaving}
+                    onChange={(event) =>
+                      onGoogleConfigChange("clientId", event.target.value)
+                    }
+                    placeholder="Google client id"
+                    className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-300 focus:border-zinc-400 focus:outline-none"
+                  />
+                </label>
+
+                <label className="block">
+                  <span className="text-[10px] font-black uppercase tracking-[0.18em] text-zinc-400">
+                    Client Secret
+                  </span>
+                  <input
+                    type="password"
+                    value={googleConfig?.clientSecret ?? ""}
+                    disabled={isGoogleConfigLoading || isGoogleConfigSaving}
+                    onChange={(event) =>
+                      onGoogleConfigChange("clientSecret", event.target.value)
+                    }
+                    placeholder="Google client secret"
+                    className="mt-2 w-full rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm text-zinc-900 placeholder:text-zinc-300 focus:border-zinc-400 focus:outline-none"
+                  />
+                </label>
+
+                {googleConfigError ? (
+                  <p className="text-sm leading-6 text-rose-600">{googleConfigError}</p>
+                ) : null}
+
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-xs leading-6 text-zinc-500">
+                    `.env.local` に保存します。読み取り専用の Calendar access を想定しています。
+                  </p>
+                  <button
+                    type="button"
+                    onClick={onGoogleConfigSave}
+                    disabled={isGoogleConfigLoading || isGoogleConfigSaving}
+                    className="shrink-0 rounded-xl border border-zinc-200 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-700 transition-colors hover:border-zinc-400 hover:text-zinc-900 disabled:cursor-not-allowed disabled:opacity-35"
+                  >
+                    {isGoogleConfigSaving ? "Saving..." : "Save"}
+                  </button>
+                </div>
+              </div>
+            </section>
+
             <section className="rounded-2xl border border-zinc-200 bg-white p-4">
               <p className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-400">
                 Runtime Status
@@ -650,6 +826,13 @@ function SettingsPanel({
                   <StatusPill
                     label={llmConfigured ? "ARMED" : "LOCKED"}
                     tone={llmConfigured ? "success" : "warning"}
+                  />
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Google Calendar</span>
+                  <StatusPill
+                    label={googleConfig?.connected ? "CONNECTED" : "WAITING"}
+                    tone={googleConfig?.connected ? "success" : "warning"}
                   />
                 </div>
                 <div className="flex items-center justify-between">
@@ -699,9 +882,13 @@ export function HomeShell({
   const [isClearingHistory, startClearingHistory] = useTransition();
   const [isNowPlayingOpen, setIsNowPlayingOpen] = useState(true);
   const [spotifyConfig, setSpotifyConfig] = useState<SpotifyConfigDto | null>(null);
+  const [googleConfig, setGoogleConfig] = useState<GoogleConfigDto | null>(null);
   const [isSpotifyConfigLoading, setIsSpotifyConfigLoading] = useState(false);
+  const [isGoogleConfigLoading, setIsGoogleConfigLoading] = useState(false);
   const [isSpotifyConfigSaving, setIsSpotifyConfigSaving] = useState(false);
+  const [isGoogleConfigSaving, setIsGoogleConfigSaving] = useState(false);
   const [spotifyConfigError, setSpotifyConfigError] = useState<string | null>(null);
+  const [googleConfigError, setGoogleConfigError] = useState<string | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
@@ -800,9 +987,24 @@ export function HomeShell({
     }
   }
 
+  async function loadGoogleConfig() {
+    setIsGoogleConfigLoading(true);
+    setGoogleConfigError(null);
+
+    try {
+      const data = await fetchGoogleConfig();
+      setGoogleConfig(data);
+    } catch (error) {
+      console.error(error);
+      setGoogleConfigError("Google 設定を読み込めませんでした。");
+    } finally {
+      setIsGoogleConfigLoading(false);
+    }
+  }
+
   function handleOpenSettings() {
     setIsSettingsOpen(true);
-    void loadSpotifyConfig();
+    void Promise.all([loadSpotifyConfig(), loadGoogleConfig()]);
   }
 
   function handleSpotifyConfigChange(
@@ -852,6 +1054,61 @@ export function HomeShell({
     }
   }
 
+  function handleGoogleConfigChange(
+    field: "clientId" | "clientSecret",
+    value: string,
+  ) {
+    setGoogleConfig((current) => {
+      const next = current ?? {
+        clientId: "",
+        clientSecret: "",
+        configured: false,
+        connected: false,
+        profile: null,
+      };
+      const updated = {
+        ...next,
+        [field]: value,
+      };
+
+      return {
+        ...updated,
+        configured: Boolean(
+          updated.clientId.trim() && updated.clientSecret.trim(),
+        ),
+      };
+    });
+    setGoogleConfigError(null);
+  }
+
+  async function handleGoogleConfigSave() {
+    const payload = {
+      clientId: googleConfig?.clientId ?? "",
+      clientSecret: googleConfig?.clientSecret ?? "",
+    };
+
+    setIsGoogleConfigSaving(true);
+    setGoogleConfigError(null);
+
+    try {
+      const data = await updateGoogleConfig(payload);
+      setGoogleConfig((current) => ({
+        ...current,
+        ...data,
+        connected: current?.connected ?? false,
+        profile: current?.profile ?? null,
+      }));
+      setNotice("Google Calendar の client 設定を保存しました。");
+      await reloadSessionFromServer();
+      await loadGoogleConfig();
+    } catch (error) {
+      console.error(error);
+      setGoogleConfigError("Google 設定の保存に失敗しました。");
+    } finally {
+      setIsGoogleConfigSaving(false);
+    }
+  }
+
   function handleSpotifyLogin() {
     if (!spotifyConfig?.configured) {
       setSpotifyConfigError(
@@ -861,6 +1118,17 @@ export function HomeShell({
     }
 
     window.location.href = "/api/auth/spotify/login";
+  }
+
+  function handleGoogleLogin() {
+    if (!googleConfig?.configured) {
+      setGoogleConfigError(
+        "Connect の前に Google client id と client secret を保存してください。",
+      );
+      return;
+    }
+
+    window.location.href = "/api/auth/google/login";
   }
 
   async function reloadSessionFromServer() {
@@ -905,6 +1173,19 @@ export function HomeShell({
         setIsSettingsOpen(false);
         setNotice("Spotify の接続を解除しました。");
         await reloadSessionFromServer();
+      })();
+    });
+  }
+
+  function handleGoogleLogout() {
+    startTransition(() => {
+      void (async () => {
+        await fetch("/api/auth/google/logout", {
+          method: "POST",
+        });
+        setNotice("Google Calendar の接続を解除しました。");
+        await reloadSessionFromServer();
+        await loadGoogleConfig();
       })();
     });
   }
@@ -1151,16 +1432,13 @@ export function HomeShell({
                             isUser ? "text-right" : "text-left",
                           )}
                         >
-                          <p
-                            className={clsx(
-                              "whitespace-pre-wrap text-[15px] leading-relaxed tracking-[0.01em]",
-                              isUser
-                                ? "font-medium text-zinc-900"
-                                : "text-zinc-600",
-                            )}
-                          >
-                            {message.content}
-                          </p>
+                          {isUser ? (
+                            <p className="whitespace-pre-wrap text-[15px] font-medium leading-relaxed tracking-[0.01em] text-zinc-900">
+                              {message.content}
+                            </p>
+                          ) : (
+                            <MarkdownMessage content={message.content} />
+                          )}
 
                           <div
                             className={clsx(
@@ -1257,18 +1535,27 @@ export function HomeShell({
         <SettingsPanel
           authenticated={session.authenticated}
           displayName={session.profile?.displayName}
+          googleProfile={session.googleProfile}
           llmConfigured={session.llmConfigured}
           deviceReady={session.deviceReady}
           sdkConnected={sdkStatus.connected}
           spotifyConfig={spotifyConfig}
+          googleConfig={googleConfig}
           isSpotifyConfigLoading={isSpotifyConfigLoading}
+          isGoogleConfigLoading={isGoogleConfigLoading}
           isSpotifyConfigSaving={isSpotifyConfigSaving}
+          isGoogleConfigSaving={isGoogleConfigSaving}
           spotifyConfigError={spotifyConfigError}
+          googleConfigError={googleConfigError}
           onSpotifyConfigChange={handleSpotifyConfigChange}
           onSpotifyConfigSave={handleSpotifyConfigSave}
+          onGoogleConfigChange={handleGoogleConfigChange}
+          onGoogleConfigSave={handleGoogleConfigSave}
           onLogin={handleSpotifyLogin}
+          onGoogleLogin={handleGoogleLogin}
           onClose={() => setIsSettingsOpen(false)}
           onLogout={handleLogout}
+          onGoogleLogout={handleGoogleLogout}
         />
       ) : null}
     </div>

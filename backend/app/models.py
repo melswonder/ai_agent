@@ -44,6 +44,30 @@ class SpotifyConnectionModel(Base):
     updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=True))
 
 
+class GoogleConnectionModel(Base):
+    __tablename__ = "GoogleConnection"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)
+    session_id: Mapped[str] = mapped_column(
+        "sessionId",
+        String,
+        ForeignKey("Session.id", ondelete="CASCADE"),
+        unique=True,
+    )
+    google_user_id: Mapped[str] = mapped_column("googleUserId", String, unique=True)
+    email: Mapped[str | None] = mapped_column(String)
+    display_name: Mapped[str | None] = mapped_column("displayName", String)
+    scope: Mapped[str] = mapped_column(String)
+    encrypted_access_token: Mapped[str] = mapped_column("encryptedAccessToken", Text)
+    encrypted_refresh_token: Mapped[str] = mapped_column("encryptedRefreshToken", Text)
+    access_token_expires_at: Mapped[datetime] = mapped_column(
+        "accessTokenExpiresAt",
+        DateTime(timezone=True),
+    )
+    created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column("updatedAt", DateTime(timezone=True))
+
+
 class ChatMessageModel(Base):
     __tablename__ = "ChatMessage"
 
@@ -58,4 +82,3 @@ class ChatMessageModel(Base):
     )
     content: Mapped[str] = mapped_column(Text)
     created_at: Mapped[datetime] = mapped_column("createdAt", DateTime(timezone=True))
-

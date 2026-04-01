@@ -14,3 +14,8 @@ class ChatPayload(BaseModel):
 class SpotifyConfigPayload(BaseModel):
     clientId: str = Field(default="", max_length=200)
     clientSecret: str = Field(default="", max_length=400)
+
+
+class GoogleConfigPayload(BaseModel):
+    clientId: str = Field(default="", max_length=200)
+    clientSecret: str = Field(default="", max_length=400)

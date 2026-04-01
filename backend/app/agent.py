@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
@@ -11,6 +12,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from sqlalchemy.orm import Session
 
 from backend.app.config import get_settings, require_openai_api_key
+from backend.app.google import list_upcoming_events
 from backend.app.spotify import (
     get_current_playback_state,
     pause_playback,
@@ -34,10 +36,48 @@ Rules:
 - You can chat normally even when no integrations are connected.
 - Use tools only when an available integration clearly matches the user's request.
 - If the user asks to control a service that is not connected, explain that briefly and continue helping in natural language.
+- When presenting schedules, plans, or calendar events, prefer Markdown output.
+- For calendar-style answers, first use a Markdown table with columns `時間 | 予定内容 | 場所`, then add a short `タイムライン` section below when useful.
+- If a location or event link is available, render it as a Markdown link.
 - For Spotify-related playback changes, infer likely music search terms from mood words like "落ち着いた", "ドライブ向け", "テンション上がる", "夜っぽい".
 - If the Spotify intent clearly implies immediate playback and Spotify tools are available, perform the action instead of asking for confirmation.
 - If the request is ambiguous, ask one short follow-up question.
 - Keep the final answer short, concrete, and practical.
+""".strip()
+
+SCHEDULE_REQUEST_RE = re.compile(
+    r"(予定|スケジュール|日程|カレンダー|calendar|イベント|event|タイムライン|timeline|今日|明日|今週|来週|空き時間|何時|いつ)",
+    re.IGNORECASE,
+)
+
+SCHEDULE_OUTPUT_PROMPT = """
+This turn is asking for schedule or calendar-style information.
+
+Output rules for this turn:
+- Answer in valid Markdown only. Do not use HTML.
+- Do not start with a plain bullet list.
+- Start with a short heading when helpful.
+- Then render the main content as a Markdown table using this exact column order:
+  `| 時間 | 予定内容 | 場所 |`
+- Always include the separator row like:
+  `| --- | --- | --- |`
+- After the table, add a `### タイムライン` section when there are one or more time-based items.
+- In the timeline section, use list items in the format `- 10:00 - 打ち合わせ`.
+- If a location or join URL exists, render it as a Markdown link inside the table.
+- If some fields are unknown, fill them with `未定` instead of omitting the column.
+- Keep the answer compact and tool-like.
+
+Example format:
+## 予定一覧
+
+| 時間 | 予定内容 | 場所 |
+| --- | --- | --- |
+| 10:00 | 朝会 | [Meet](https://example.com) |
+| 13:00 | 企画レビュー | 会議室A |
+
+### タイムライン
+- 10:00 - 朝会
+- 13:00 - 企画レビュー
 """.strip()
 
 
@@ -45,10 +85,10 @@ def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
 
 
-def build_system_prompt(*, spotify_connected: bool) -> str:
+def build_system_prompt(*, spotify_connected: bool, google_connected: bool) -> str:
     integration_lines = [
         f"- Spotify: {'connected and controllable' if spotify_connected else 'not connected'}",
-        "- Google Calendar: not connected yet (planned future integration)",
+        f"- Google Calendar: {'connected and readable' if google_connected else 'not connected'}",
     ]
 
     if spotify_connected:
@@ -60,9 +100,20 @@ def build_system_prompt(*, spotify_connected: bool) -> str:
             "- No Spotify control tools are available right now, so handle music requests conversationally unless the user connects Spotify later."
         )
 
-    return f"{BASE_SYSTEM_PROMPT}\n\nCurrent integrations:\n" + "\n".join(
-        integration_lines
-    )
+    if google_connected:
+        integration_lines.append(
+            "- Google Calendar tools are available for reading upcoming events."
+        )
+    else:
+        integration_lines.append(
+            "- No Google Calendar tools are available right now, so discuss scheduling conversationally unless the user connects Google later."
+        )
+
+    return f"{BASE_SYSTEM_PROMPT}\n\nCurrent integrations:\n" + "\n".join(integration_lines)
+
+
+def wants_schedule_format(user_input: str) -> bool:
+    return bool(SCHEDULE_REQUEST_RE.search(user_input))
 
 
 def create_spotify_tools(db: Session, session_id: str) -> list[Any]:
@@ -151,6 +202,16 @@ def create_spotify_tools(db: Session, session_id: str) -> list[Any]:
     ]
 
 
+def create_google_tools(db: Session, session_id: str) -> list[Any]:
+    @tool("list_upcoming_calendar_events")
+    def list_upcoming_calendar_events_tool(days: int = 7, limit: int = 10) -> str:
+        """Read upcoming events from the user's primary Google Calendar."""
+        events = list_upcoming_events(db, session_id, max_results=limit, days=days)
+        return _json({"events": events})
+
+    return [list_upcoming_calendar_events_tool]
+
+
 def _to_langchain_history(messages: list[dict[str, str]]) -> list[Any]:
     history: list[Any] = []
     for message in messages:
@@ -187,10 +248,21 @@ def run_control_agent(
     user_input: str,
     *,
     spotify_connected: bool,
+    google_connected: bool,
 ) -> dict[str, Any]:
     settings = get_settings()
-    tools = create_spotify_tools(db, session_id) if spotify_connected else []
-    system_prompt = build_system_prompt(spotify_connected=spotify_connected)
+    tools: list[Any] = []
+    if spotify_connected:
+        tools.extend(create_spotify_tools(db, session_id))
+    if google_connected:
+        tools.extend(create_google_tools(db, session_id))
+
+    system_prompt = build_system_prompt(
+        spotify_connected=spotify_connected,
+        google_connected=google_connected,
+    )
+    if wants_schedule_format(user_input):
+        system_prompt = f"{system_prompt}\n\n{SCHEDULE_OUTPUT_PROMPT}"
     model = ChatOpenAI(
         api_key=require_openai_api_key(),
         model=settings.openai_model,

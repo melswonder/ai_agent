@@ -27,12 +27,17 @@ export type PlaybackDto = {
 export type SessionDto = {
   authenticated: boolean;
   spotifyConfigured: boolean;
+  googleConfigured?: boolean;
   llmConfigured: boolean;
   deviceReady: boolean;
   callbackUrl: string;
   profile: {
     displayName: string | null;
     spotifyUserId: string | null;
+  } | null;
+  googleProfile?: {
+    displayName: string | null;
+    email: string | null;
   } | null;
   messages: ChatMessageDto[];
   playback: PlaybackDto | null;
@@ -54,4 +59,15 @@ export type SpotifyConfigDto = {
   clientId: string;
   clientSecret: string;
   configured: boolean;
+};
+
+export type GoogleConfigDto = {
+  clientId: string;
+  clientSecret: string;
+  configured: boolean;
+  connected?: boolean;
+  profile?: {
+    displayName: string | null;
+    email: string | null;
+  } | null;
 };

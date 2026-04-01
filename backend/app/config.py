@@ -35,6 +35,9 @@ class Settings(BaseModel):
     spotify_client_id: str | None = None
     spotify_client_secret: str | None = None
     spotify_callback_url: str = "https://127.0.0.1:8000/callbacks"
+    google_client_id: str | None = None
+    google_client_secret: str | None = None
+    google_callback_url: str = "https://127.0.0.1:8000/callbacks/google"
     spotify_token_encryption_key: str | None = None
 
     @property
@@ -82,12 +85,23 @@ class Settings(BaseModel):
     def llm_configured(self) -> bool:
         return bool(self.openai_api_key)
 
+    @property
+    def google_configured(self) -> bool:
+        return bool(
+            self.google_client_id
+            and self.google_client_secret
+            and self.google_callback_url
+        )
+
 
 def _reload_environment() -> None:
     for key in [
         "SPOTIFY_CLIENT_ID",
         "SPOTIFY_CLIENT_SECRET",
         "SPOTIFY_CALLBACK_URL",
+        "GOOGLE_CLIENT_ID",
+        "GOOGLE_CLIENT_SECRET",
+        "GOOGLE_CALLBACK_URL",
     ]:
         os.environ.pop(key, None)
 
@@ -111,6 +125,24 @@ def get_spotify_env_values() -> dict[str, str]:
     return {
         "clientId": pick("SPOTIFY_CLIENT_ID"),
         "clientSecret": pick("SPOTIFY_CLIENT_SECRET"),
+    }
+
+
+def get_google_env_values() -> dict[str, str]:
+    local_values = dotenv_values(ENV_LOCAL_PATH)
+    fallback_values = dotenv_values(ENV_PATH)
+
+    def pick(key: str) -> str:
+        return (
+            _empty_to_none(local_values.get(key))
+            or _empty_to_none(fallback_values.get(key))
+            or _empty_to_none(os.getenv(key))
+            or ""
+        )
+
+    return {
+        "clientId": pick("GOOGLE_CLIENT_ID"),
+        "clientSecret": pick("GOOGLE_CLIENT_SECRET"),
     }
 
 
@@ -144,6 +176,36 @@ def save_spotify_env_values(client_id: str, client_secret: str) -> dict[str, str
     return get_spotify_env_values()
 
 
+def save_google_env_values(client_id: str, client_secret: str) -> dict[str, str]:
+    ENV_LOCAL_PATH.touch(exist_ok=True)
+
+    normalized_client_id = client_id.strip()
+    normalized_client_secret = client_secret.strip()
+
+    if normalized_client_id:
+        set_key(
+            ENV_LOCAL_PATH,
+            "GOOGLE_CLIENT_ID",
+            normalized_client_id,
+            quote_mode="never",
+        )
+    else:
+        unset_key(ENV_LOCAL_PATH, "GOOGLE_CLIENT_ID")
+
+    if normalized_client_secret:
+        set_key(
+            ENV_LOCAL_PATH,
+            "GOOGLE_CLIENT_SECRET",
+            normalized_client_secret,
+            quote_mode="never",
+        )
+    else:
+        unset_key(ENV_LOCAL_PATH, "GOOGLE_CLIENT_SECRET")
+
+    _reload_environment()
+    return get_google_env_values()
+
+
 @lru_cache(maxsize=1)
 def get_settings() -> Settings:
     return Settings(
@@ -160,6 +222,12 @@ def get_settings() -> Settings:
         spotify_callback_url=os.getenv(
             "SPOTIFY_CALLBACK_URL",
             "https://127.0.0.1:8000/callbacks",
+        ),
+        google_client_id=_empty_to_none(os.getenv("GOOGLE_CLIENT_ID")),
+        google_client_secret=_empty_to_none(os.getenv("GOOGLE_CLIENT_SECRET")),
+        google_callback_url=os.getenv(
+            "GOOGLE_CALLBACK_URL",
+            "https://127.0.0.1:8000/callbacks/google",
         ),
         spotify_token_encryption_key=_empty_to_none(
             os.getenv("SPOTIFY_TOKEN_ENCRYPTION_KEY")
@@ -196,3 +264,13 @@ def require_spotify_credentials() -> tuple[str, str]:
         )
 
     return settings.spotify_client_id, settings.spotify_client_secret
+
+
+def require_google_credentials() -> tuple[str, str]:
+    settings = get_settings()
+    if not settings.google_client_id or not settings.google_client_secret:
+        raise RuntimeError(
+            "GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET must be configured."
+        )
+
+    return settings.google_client_id, settings.google_client_secret

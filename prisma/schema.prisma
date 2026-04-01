@@ -13,6 +13,7 @@ model Session {
   createdAt         DateTime            @default(now())
   updatedAt         DateTime            @updatedAt
   spotifyConnection SpotifyConnection?
+  googleConnection  GoogleConnection?
   messages          ChatMessage[]
 }
 
@@ -26,6 +27,21 @@ model SpotifyConnection {
   encryptedRefreshToken String   @db.Text
   accessTokenExpiresAt  DateTime
   playerDeviceId        String?
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+  session               Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+}
+
+model GoogleConnection {
+  id                    String   @id @default(cuid())
+  sessionId             String   @unique
+  googleUserId          String   @unique
+  email                 String?
+  displayName           String?
+  scope                 String
+  encryptedAccessToken  String   @db.Text
+  encryptedRefreshToken String   @db.Text
+  accessTokenExpiresAt  DateTime
   createdAt             DateTime @default(now())
   updatedAt             DateTime @updatedAt
   session               Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
