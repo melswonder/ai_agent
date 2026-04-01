@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 from pathlib import Path
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from dotenv import load_dotenv
 from pydantic import BaseModel
@@ -36,17 +37,36 @@ class Settings(BaseModel):
 
     @property
     def sqlalchemy_database_url(self) -> str:
-        if self.database_url.startswith("postgresql+"):
-            return self.database_url
+        raw_url = self.database_url
 
-        if self.database_url.startswith("postgresql://"):
-            return self.database_url.replace(
-                "postgresql://",
-                "postgresql+psycopg2://",
-                1,
+        if raw_url.startswith("postgresql://"):
+            raw_url = raw_url.replace("postgresql://", "postgresql+psycopg2://", 1)
+
+        if not raw_url.startswith("postgresql+"):
+            return raw_url
+
+        parts = urlsplit(raw_url)
+        query = dict(parse_qsl(parts.query, keep_blank_values=True))
+        schema = query.pop("schema", None)
+
+        if schema and schema != "public":
+            existing_options = query.get("options", "").strip()
+            search_path_option = f"-csearch_path={schema}"
+            query["options"] = (
+                f"{existing_options} {search_path_option}".strip()
+                if existing_options
+                else search_path_option
             )
 
-        return self.database_url
+        return urlunsplit(
+            (
+                parts.scheme,
+                parts.netloc,
+                parts.path,
+                urlencode(query),
+                parts.fragment,
+            )
+        )
 
     @property
     def spotify_configured(self) -> bool:
@@ -113,4 +133,3 @@ def require_spotify_credentials() -> tuple[str, str]:
         )
 
     return settings.spotify_client_id, settings.spotify_client_secret
-
