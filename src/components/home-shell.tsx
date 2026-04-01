@@ -21,6 +21,7 @@ import {
   Trash2,
   User,
   Volume2,
+  X,
   Zap,
 } from "lucide-react";
 import type {
@@ -224,6 +225,126 @@ function NowPlayingPanel({
   );
 }
 
+function SettingsPanel({
+  authenticated,
+  displayName,
+  llmConfigured,
+  deviceReady,
+  sdkConnected,
+  onClose,
+  onLogout,
+}: {
+  authenticated: boolean;
+  displayName: string | null | undefined;
+  llmConfigured: boolean;
+  deviceReady: boolean;
+  sdkConnected: boolean;
+  onClose: () => void;
+  onLogout: () => void;
+}) {
+  return (
+    <div className="fixed inset-0 z-40">
+      <button
+        type="button"
+        aria-label="Close settings"
+        className="absolute inset-0 bg-zinc-900/18 backdrop-blur-[1px]"
+        onClick={onClose}
+      />
+
+      <aside className="absolute right-0 top-0 h-full w-full max-w-md border-l border-zinc-200 bg-white shadow-[0_24px_80px_rgba(24,24,27,0.12)]">
+        <div className="flex h-full flex-col">
+          <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
+            <div>
+              <p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-400">
+                Settings
+              </p>
+              <p className="mt-2 text-sm font-semibold text-zinc-900">
+                Spotify Control Settings
+              </p>
+            </div>
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-xl border border-zinc-200 p-2 text-zinc-500 transition-colors hover:border-zinc-400 hover:text-zinc-900"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+
+          <div className="flex-1 space-y-4 overflow-y-auto px-5 py-5">
+            <section className="rounded-2xl border border-zinc-200 bg-zinc-50/60 p-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-400">
+                Spotify Account
+              </p>
+              <p className="mt-3 text-sm font-semibold text-zinc-900">
+                {authenticated ? displayName ?? "Connected Account" : "Not connected"}
+              </p>
+              <p className="mt-2 text-sm leading-7 text-zinc-500">
+                {authenticated
+                  ? "Spotify アカウントは接続済みです。必要ならここから接続解除できます。"
+                  : "Spotify を接続すると、チャットから曲の検索や再生変更ができるようになります。"}
+              </p>
+              <div className="mt-4">
+                {authenticated ? (
+                  <button
+                    type="button"
+                    onClick={onLogout}
+                    className="rounded-xl border border-zinc-200 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600 transition-colors hover:border-zinc-400 hover:text-zinc-900"
+                  >
+                    Disconnect Spotify
+                  </button>
+                ) : (
+                  <a
+                    href="/api/auth/spotify/login"
+                    className="inline-flex rounded-xl bg-zinc-900 px-4 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-white transition-colors hover:bg-zinc-800"
+                  >
+                    Connect Spotify
+                  </a>
+                )}
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-zinc-200 bg-white p-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-400">
+                Runtime Status
+              </p>
+              <div className="mt-4 space-y-3 text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-400">
+                <div className="flex items-center justify-between">
+                  <span>OAuth</span>
+                  <span>{authenticated ? "READY" : "WAITING"}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>LLM Agent</span>
+                  <span>{llmConfigured ? "ARMED" : "LOCKED"}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Browser Device</span>
+                  <span>{deviceReady ? "ONLINE" : "PENDING"}</span>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span>Web SDK</span>
+                  <span>{sdkConnected ? "SYNCED" : "OFFLINE"}</span>
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-zinc-200 bg-white p-4">
+              <p className="text-[10px] font-black uppercase tracking-[0.22em] text-zinc-400">
+                Notes
+              </p>
+              <p className="mt-3 text-sm leading-7 text-zinc-500">
+                再生できないときは、Spotify Premium とブラウザ再生デバイスの準備を確認してください。
+                トークン期限切れ時は自動で refresh token を使って更新します。
+              </p>
+            </section>
+          </div>
+        </div>
+      </aside>
+    </div>
+  );
+}
+
 export function HomeShell({
   initialAuthError,
 }: {
@@ -243,6 +364,7 @@ export function HomeShell({
   );
   const [isPending, startTransition] = useTransition();
   const [isClearingHistory, startClearingHistory] = useTransition();
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -381,6 +503,7 @@ export function HomeShell({
           deviceId: null,
           error: null,
         });
+        setIsSettingsOpen(false);
         setNotice("Spotify の接続を解除しました。");
       })();
     });
@@ -557,24 +680,14 @@ export function HomeShell({
             <span className="hidden sm:inline">Clear History</span>
           </button>
 
-          {session.authenticated ? (
-            <button
-              type="button"
-              onClick={handleLogout}
-              className="rounded-xl border border-zinc-200 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-zinc-600 hover:border-zinc-400 hover:text-zinc-900"
-            >
-              Disconnect
-            </button>
-          ) : (
-            <a
-              href="/api/auth/spotify/login"
-              className="rounded-xl bg-zinc-900 px-3 py-2 text-[10px] font-bold uppercase tracking-[0.18em] text-white hover:bg-zinc-800"
-            >
-              Connect Spotify
-            </a>
-          )}
-
-          <MoreHorizontal className="h-4 w-4 cursor-pointer text-zinc-300 transition-colors hover:text-zinc-900" />
+          <button
+            type="button"
+            onClick={() => setIsSettingsOpen(true)}
+            className="inline-flex items-center justify-center rounded-xl border border-zinc-200 p-2.5 text-zinc-400 transition-colors hover:border-zinc-400 hover:text-zinc-900"
+            aria-label="Open settings"
+          >
+            <MoreHorizontal className="h-4 w-4" />
+          </button>
         </div>
       </nav>
 
@@ -829,6 +942,18 @@ export function HomeShell({
           </div>
         ) : null}
       </main>
+
+      {isSettingsOpen ? (
+        <SettingsPanel
+          authenticated={session.authenticated}
+          displayName={session.profile?.displayName}
+          llmConfigured={session.llmConfigured}
+          deviceReady={session.deviceReady}
+          sdkConnected={sdkStatus.connected}
+          onClose={() => setIsSettingsOpen(false)}
+          onLogout={handleLogout}
+        />
+      ) : null}
     </div>
   );
 }
