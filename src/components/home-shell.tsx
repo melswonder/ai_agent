@@ -133,14 +133,22 @@ function formatDuration(ms: number) {
   return `${minutes}:${String(seconds).padStart(2, "0")}`;
 }
 
-function progressWidth(playback: PlaybackDto | null) {
-  if (!playback?.item) {
+function clampProgress(progressMs: number, durationMs: number | null | undefined) {
+  if (!durationMs || durationMs <= 0) {
+    return Math.max(0, progressMs);
+  }
+
+  return Math.min(durationMs, Math.max(0, progressMs));
+}
+
+function progressWidth(progressMs: number, durationMs: number | null | undefined) {
+  if (!durationMs || durationMs <= 0) {
     return 0;
   }
 
   return Math.min(
     100,
-    Math.max(6, (playback.progressMs / Math.max(playback.item.durationMs, 1)) * 100),
+    Math.max(6, (clampProgress(progressMs, durationMs) / Math.max(durationMs, 1)) * 100),
   );
 }
 
@@ -169,6 +177,56 @@ function NowPlayingPanel({
   currentTrack: PlaybackDto["item"] | null;
   playback: PlaybackDto | null;
 }) {
+  const [clockMs, setClockMs] = useState(() => Date.now());
+  const [progressBaseline, setProgressBaseline] = useState(() => ({
+    signature: "",
+    capturedAt: Date.now(),
+  }));
+
+  const progressSignature = [
+    currentTrack?.uri ?? "none",
+    playback?.progressMs ?? 0,
+    playback?.isPlaying ? "1" : "0",
+  ].join(":");
+
+  useEffect(() => {
+    const capturedAt = Date.now();
+
+    const frameId = window.requestAnimationFrame(() => {
+      setProgressBaseline({
+        signature: progressSignature,
+        capturedAt,
+      });
+      setClockMs(capturedAt);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [progressSignature]);
+
+  useEffect(() => {
+    if (!playback?.isPlaying || !currentTrack?.durationMs) {
+      return;
+    }
+
+    const timer = window.setInterval(() => {
+      setClockMs(Date.now());
+    }, 250);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [playback?.isPlaying, currentTrack?.uri, currentTrack?.durationMs]);
+
+  const elapsedMs = playback?.isPlaying
+    ? Math.max(0, clockMs - progressBaseline.capturedAt)
+    : 0;
+  const displayProgressMs = clampProgress(
+    (playback?.progressMs ?? 0) + elapsedMs,
+    currentTrack?.durationMs,
+  );
+
   return (
     <div className="rounded-2xl border border-zinc-200 bg-white p-4 shadow-[0_18px_60px_rgba(24,24,27,0.05)]">
       <div className="flex items-center justify-between">
@@ -219,11 +277,16 @@ function NowPlayingPanel({
               <div className="h-1.5 rounded-full bg-zinc-100">
                 <div
                   className="h-1.5 rounded-full bg-zinc-900"
-                  style={{ width: `${progressWidth(playback)}%` }}
+                  style={{
+                    width: `${progressWidth(
+                      displayProgressMs,
+                      currentTrack.durationMs,
+                    )}%`,
+                  }}
                 />
               </div>
               <div className="mt-2 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-300">
-                <span>{formatDuration(playback?.progressMs ?? 0)}</span>
+                <span>{formatDuration(displayProgressMs)}</span>
                 <span>{formatDuration(currentTrack.durationMs)}</span>
               </div>
             </div>
@@ -876,16 +939,6 @@ export function HomeShell({
                 </div>
               </div>
             </form>
-
-            <div className="mt-4 flex flex-col gap-2 text-center">
-              <p className="text-[9px] font-bold uppercase tracking-[0.2em] text-zinc-300">
-                Operational Integrity Secured by Spotify Chat DJ
-              </p>
-              <p className="text-xs text-zinc-400">
-                {composerReason ??
-                  "自然言語を受け取ると、Spotify 検索と再生ツールを LangGraph が自動で呼び出します。"}
-              </p>
-            </div>
           </div>
         </div>
       </main>
