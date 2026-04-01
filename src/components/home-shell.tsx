@@ -351,127 +351,124 @@ function NowPlayingDrawer({
     "Playback metadata will appear here after Spotify starts playing.";
 
   return (
-    <div className="pointer-events-none absolute inset-y-6 right-0 z-30 hidden items-center lg:flex">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="pointer-events-auto absolute right-0 top-1/2 z-10 flex -translate-y-1/2 items-center gap-2 rounded-l-2xl border border-r-0 border-zinc-200 bg-white px-3 py-3 text-zinc-500 shadow-[0_18px_50px_rgba(24,24,27,0.08)] transition hover:text-zinc-900"
-        aria-label={isOpen ? "Hide now playing panel" : "Show now playing panel"}
-      >
-        <Music className="h-4 w-4" />
-        <span className="text-[10px] font-black uppercase tracking-[0.18em]">
-          Now Playing
-        </span>
-        {isOpen ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-      </button>
-
-      <aside
+    <div className="pointer-events-none absolute right-0 top-6 z-30 hidden lg:block">
+      <div
         className={clsx(
-          "pointer-events-auto mr-14 flex h-full max-h-[calc(100dvh-7rem)] w-[24rem] flex-col overflow-hidden rounded-[1.75rem] border border-zinc-200 bg-white shadow-[0_28px_80px_rgba(24,24,27,0.12)] transition-transform duration-300 ease-out",
-          isOpen ? "translate-x-0" : "translate-x-[calc(100%+3.5rem)]",
+          "pointer-events-auto flex items-start transition-transform duration-300 ease-out",
+          isOpen ? "translate-x-0" : "translate-x-[24rem]",
         )}
       >
-        <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
-          <div className="flex items-center gap-3">
-            <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-2">
-              <Music className="h-4 w-4 text-zinc-500" />
+        <button
+          type="button"
+          onClick={onToggle}
+          className="mt-4 flex items-center gap-2 rounded-l-2xl border border-r-0 border-zinc-200 bg-white px-3 py-3 text-zinc-500 shadow-[0_18px_50px_rgba(24,24,27,0.08)] transition hover:text-zinc-900"
+          aria-label={isOpen ? "Hide now playing panel" : "Show now playing panel"}
+        >
+          <Music className="h-4 w-4" />
+          <span className="text-[10px] font-black uppercase tracking-[0.18em]">
+            Now Playing
+          </span>
+          {isOpen ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+        </button>
+
+        <aside className="flex h-[calc(100dvh-7rem)] w-[24rem] flex-col overflow-hidden rounded-l-[1.75rem] border border-r-0 border-zinc-200 bg-white shadow-[0_28px_80px_rgba(24,24,27,0.12)]">
+          <div className="flex items-center justify-between border-b border-zinc-100 px-5 py-4">
+            <div className="flex items-center gap-3">
+              <div className="rounded-xl border border-zinc-100 bg-zinc-50 p-2">
+                <Music className="h-4 w-4 text-zinc-500" />
+              </div>
+              <div>
+                <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">
+                  Now Playing
+                </p>
+                <p className="mt-2 text-sm font-semibold text-zinc-900">
+                  {currentTrack ? currentTrack.name : "No active playback"}
+                </p>
+              </div>
             </div>
-            <div>
-              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">
-                Now Playing
-              </p>
-              <p className="mt-2 text-sm font-semibold text-zinc-900">
-                {currentTrack ? currentTrack.name : "No active playback"}
-              </p>
-            </div>
+            <span className="text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-300">
+              {playback?.isPlaying ? "LIVE" : "IDLE"}
+            </span>
           </div>
-          <button
-            type="button"
-            onClick={onToggle}
-            className="rounded-xl border border-zinc-200 p-2 text-zinc-400 transition hover:border-zinc-400 hover:text-zinc-900"
-            aria-label="Close now playing panel"
-          >
-            <ChevronRight className="h-4 w-4" />
-          </button>
-        </div>
 
-        <div className="flex-1 overflow-y-auto px-5 py-5">
-          <div className="rounded-[1.5rem] border border-zinc-200 bg-zinc-50/60 p-4">
-            {currentTrack?.imageUrl ? (
-              <Image
-                src={currentTrack.imageUrl}
-                alt={currentTrack.name}
-                width={720}
-                height={720}
-                className="h-64 w-full rounded-[1.25rem] object-cover"
-              />
-            ) : (
-              <div className="flex h-64 items-center justify-center rounded-[1.25rem] border border-zinc-100 bg-white text-sm text-zinc-400">
-                Artwork unavailable
-              </div>
-            )}
-
-            <div className="mt-4">
-              <p className="text-lg font-semibold leading-8 text-zinc-900">
-                {currentTrack ? currentTrack.name : "Playback will appear here"}
-              </p>
-              <p className="mt-2 text-sm leading-7 text-zinc-500">
-                {currentTrack
-                  ? artistsLabel
-                  : "Spotify の再生が始まると、曲情報とジャケット画像をこのパネルに表示します。"}
-              </p>
-              <p className="mt-3 text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-300">
-                {currentTrack?.albumName ?? "Spotify metadata"}
-              </p>
-            </div>
-
-            <div className="mt-5">
-              <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-[0.18em] text-zinc-400">
-                <span>{playbackStatus}</span>
-                <span>{contextLabel}</span>
-              </div>
-              <div className="mt-3 h-2 rounded-full bg-zinc-100">
-                <div
-                  className="h-2 rounded-full bg-zinc-900 transition-[width] duration-200"
-                  style={{
-                    width: `${progressWidth(
-                      displayProgressMs,
-                      currentTrack?.durationMs,
-                    )}%`,
-                  }}
+          <div className="flex-1 overflow-y-auto px-5 py-5">
+            <div className="rounded-[1.5rem] border border-zinc-200 bg-zinc-50/60 p-4">
+              {currentTrack?.imageUrl ? (
+                <Image
+                  src={currentTrack.imageUrl}
+                  alt={currentTrack.name}
+                  width={720}
+                  height={720}
+                  className="h-64 w-full rounded-[1.25rem] object-cover"
                 />
+              ) : (
+                <div className="flex h-64 items-center justify-center rounded-[1.25rem] border border-zinc-100 bg-white text-sm text-zinc-400">
+                  Artwork unavailable
+                </div>
+              )}
+
+              <div className="mt-4">
+                <p className="text-lg font-semibold leading-8 text-zinc-900">
+                  {currentTrack ? currentTrack.name : "Playback will appear here"}
+                </p>
+                <p className="mt-2 text-sm leading-7 text-zinc-500">
+                  {currentTrack
+                    ? artistsLabel
+                    : "Spotify の再生が始まると、曲情報とジャケット画像をこのパネルに表示します。"}
+                </p>
+                <p className="mt-3 text-[11px] font-bold uppercase tracking-[0.18em] text-zinc-300">
+                  {currentTrack?.albumName ?? "Spotify metadata"}
+                </p>
               </div>
-              <div className="mt-2 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-300">
-                <span>{formatDuration(displayProgressMs)}</span>
-                <span>{formatDuration(currentTrack?.durationMs ?? 0)}</span>
+
+              <div className="mt-5">
+                <div className="flex items-center justify-between text-[10px] font-black uppercase tracking-[0.18em] text-zinc-400">
+                  <span>{playbackStatus}</span>
+                  <span>{contextLabel}</span>
+                </div>
+                <div className="mt-3 h-2 rounded-full bg-zinc-100">
+                  <div
+                    className="h-2 rounded-full bg-zinc-900 transition-[width] duration-200"
+                    style={{
+                      width: `${progressWidth(
+                        displayProgressMs,
+                        currentTrack?.durationMs,
+                      )}%`,
+                    }}
+                  />
+                </div>
+                <div className="mt-2 flex items-center justify-between text-[10px] font-mono uppercase tracking-[0.16em] text-zinc-300">
+                  <span>{formatDuration(displayProgressMs)}</span>
+                  <span>{formatDuration(currentTrack?.durationMs ?? 0)}</span>
+                </div>
               </div>
             </div>
+
+            <section className="mt-5 rounded-[1.5rem] border border-zinc-200 bg-white px-4 py-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">
+                Session Details
+              </p>
+              <div className="mt-3">
+                <DetailRow label="Account" value={accountLabel} />
+                <DetailRow label="Device" value={deviceLabel} />
+                <DetailRow label="SDK" value={sdkConnected ? "Connected" : "Offline"} />
+                <DetailRow label="Volume" value={volumeLabel} />
+              </div>
+            </section>
+
+            <section className="mt-5 rounded-[1.5rem] border border-zinc-200 bg-white px-4 py-3">
+              <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">
+                Track Details
+              </p>
+              <div className="mt-3">
+                <DetailRow label="Album" value={currentTrack?.albumName ?? "Unavailable"} />
+                <DetailRow label="Artists" value={artistsLabel} />
+                <DetailRow label="Source" value={sourceLabel} />
+              </div>
+            </section>
           </div>
-
-          <section className="mt-5 rounded-[1.5rem] border border-zinc-200 bg-white px-4 py-3">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">
-              Session Details
-            </p>
-            <div className="mt-3">
-              <DetailRow label="Account" value={accountLabel} />
-              <DetailRow label="Device" value={deviceLabel} />
-              <DetailRow label="SDK" value={sdkConnected ? "Connected" : "Offline"} />
-              <DetailRow label="Volume" value={volumeLabel} />
-            </div>
-          </section>
-
-          <section className="mt-5 rounded-[1.5rem] border border-zinc-200 bg-white px-4 py-3">
-            <p className="text-[10px] font-black uppercase tracking-[0.2em] text-zinc-400">
-              Track Details
-            </p>
-            <div className="mt-3">
-              <DetailRow label="Album" value={currentTrack?.albumName ?? "Unavailable"} />
-              <DetailRow label="Artists" value={artistsLabel} />
-              <DetailRow label="Source" value={sourceLabel} />
-            </div>
-          </section>
-        </div>
-      </aside>
+        </aside>
+      </div>
     </div>
   );
 }
