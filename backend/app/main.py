@@ -9,7 +9,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
-from backend.app.agent import run_music_agent
+from backend.app.agent import run_control_agent
 from backend.app.config import get_settings, get_spotify_env_values, save_spotify_env_values
 from backend.app.db import get_db
 from backend.app.models import ChatMessageModel, SessionModel, SpotifyConnectionModel
@@ -419,9 +419,7 @@ def chat(
     request: Request,
     db: Session = Depends(get_db),
 ) -> Response:
-    session_id = get_session_id_from_request(request)
-    if not session_id:
-        return JSONResponse({"error": "Not authenticated."}, status_code=401)
+    session_id = get_or_create_session_id(db, request)
 
     if not is_llm_configured():
         return JSONResponse(
@@ -434,14 +432,12 @@ def chat(
             SpotifyConnectionModel.session_id == session_id
         )
     )
-    if not connection:
-        return JSONResponse({"error": "Spotify is not connected."}, status_code=401)
 
     history = get_recent_conversation(db, session_id, 18)
     save_chat_message(db, session_id, "USER", payload.message)
 
     try:
-        result = run_music_agent(
+        result = run_control_agent(
             db,
             session_id,
             [
@@ -449,6 +445,7 @@ def chat(
                 for message in history
             ],
             payload.message,
+            spotify_connected=bool(connection),
         )
         assistant_record = save_chat_message(
             db,
@@ -457,8 +454,8 @@ def chat(
             result["assistantMessage"],
         )
         messages = get_conversation(db, session_id)
-        playback = get_current_playback_state(db, session_id)
-        return JSONResponse(
+        playback = get_current_playback_state(db, session_id) if connection else None
+        response = JSONResponse(
             {
                 "messages": to_chat_message_dto(messages),
                 "playback": playback,
@@ -470,6 +467,8 @@ def chat(
                 },
             }
         )
+        attach_session_cookie(response, session_id)
+        return response
     except Exception as error:
         logger.exception("Chat request failed")
         fallback = save_chat_message(
@@ -480,12 +479,13 @@ def chat(
         )
         messages = get_conversation(db, session_id)
         playback = None
-        try:
-            playback = get_current_playback_state(db, session_id)
-        except Exception:
-            logger.exception("Unable to refresh playback after chat failure")
+        if connection:
+            try:
+                playback = get_current_playback_state(db, session_id)
+            except Exception:
+                logger.exception("Unable to refresh playback after chat failure")
 
-        return JSONResponse(
+        response = JSONResponse(
             {
                 "messages": to_chat_message_dto(messages),
                 "playback": playback,
@@ -498,3 +498,5 @@ def chat(
             },
             status_code=500,
         )
+        attach_session_cookie(response, session_id)
+        return response

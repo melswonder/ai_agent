@@ -26,21 +26,43 @@ from backend.app.spotify import (
 )
 
 
-SYSTEM_PROMPT = """
-You are "Spotify Chat DJ", a Japanese-speaking agent that controls Spotify playback.
+BASE_SYSTEM_PROMPT = """
+You are "Control Hub Assistant", a Japanese-speaking assistant with optional service integrations.
 
 Rules:
 - Always answer in Japanese.
-- When the user asks to change, start, stop, skip, queue, or tune the music, use tools.
-- Infer likely music search terms from mood words like "落ち着いた", "ドライブ向け", "テンション上がる", "夜っぽい".
-- If the user intent clearly implies immediate playback, perform the action instead of asking for confirmation.
+- You can chat normally even when no integrations are connected.
+- Use tools only when an available integration clearly matches the user's request.
+- If the user asks to control a service that is not connected, explain that briefly and continue helping in natural language.
+- For Spotify-related playback changes, infer likely music search terms from mood words like "落ち着いた", "ドライブ向け", "テンション上がる", "夜っぽい".
+- If the Spotify intent clearly implies immediate playback and Spotify tools are available, perform the action instead of asking for confirmation.
 - If the request is ambiguous, ask one short follow-up question.
-- Keep the final answer short, concrete, and mention what changed.
+- Keep the final answer short, concrete, and practical.
 """.strip()
 
 
 def _json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, indent=2)
+
+
+def build_system_prompt(*, spotify_connected: bool) -> str:
+    integration_lines = [
+        f"- Spotify: {'connected and controllable' if spotify_connected else 'not connected'}",
+        "- Google Calendar: not connected yet (planned future integration)",
+    ]
+
+    if spotify_connected:
+        integration_lines.append(
+            "- Spotify tools are available for search, playback, queue, skip, pause, resume, and volume."
+        )
+    else:
+        integration_lines.append(
+            "- No Spotify control tools are available right now, so handle music requests conversationally unless the user connects Spotify later."
+        )
+
+    return f"{BASE_SYSTEM_PROMPT}\n\nCurrent integrations:\n" + "\n".join(
+        integration_lines
+    )
 
 
 def create_spotify_tools(db: Session, session_id: str) -> list[Any]:
@@ -158,25 +180,44 @@ def _content_to_text(content: Any) -> str:
     return ""
 
 
-def run_music_agent(
+def run_control_agent(
     db: Session,
     session_id: str,
     history: list[dict[str, str]],
     user_input: str,
+    *,
+    spotify_connected: bool,
 ) -> dict[str, Any]:
     settings = get_settings()
-    tools = create_spotify_tools(db, session_id)
+    tools = create_spotify_tools(db, session_id) if spotify_connected else []
+    system_prompt = build_system_prompt(spotify_connected=spotify_connected)
     model = ChatOpenAI(
         api_key=require_openai_api_key(),
         model=settings.openai_model,
         temperature=0.3,
-    ).bind_tools(tools)
+    )
 
+    conversation = [*_to_langchain_history(history), HumanMessage(content=user_input)]
+
+    if not tools:
+        response = model.invoke([SystemMessage(content=system_prompt), *conversation])
+        assistant_message = (
+            _content_to_text(response.content)
+            if isinstance(response, AIMessage)
+            else "お手伝いできることがあれば続けて話してください。"
+        )
+        return {
+            "assistantMessage": assistant_message
+            or "お手伝いできることがあれば続けて話してください。",
+            "toolMessages": [],
+        }
+
+    model_with_tools = model.bind_tools(tools)
     graph = StateGraph(MessagesState)
 
     def call_model(state: MessagesState) -> dict[str, list[Any]]:
-        response = model.invoke(
-            [SystemMessage(content=SYSTEM_PROMPT), *state["messages"]]
+        response = model_with_tools.invoke(
+            [SystemMessage(content=system_prompt), *state["messages"]]
         )
         return {"messages": [response]}
 
@@ -188,13 +229,15 @@ def run_music_agent(
 
     app = graph.compile()
     result = app.invoke(
-        {"messages": [*_to_langchain_history(history), HumanMessage(content=user_input)]},
+        {"messages": conversation},
         {"recursion_limit": 12},
     )
 
     messages = result["messages"]
     last_message = messages[-1] if messages else None
-    tool_messages = [message.content for message in messages if isinstance(message, ToolMessage)]
+    tool_messages = [
+        message.content for message in messages if isinstance(message, ToolMessage)
+    ]
     assistant_message = (
         _content_to_text(last_message.content)
         if isinstance(last_message, AIMessage)
@@ -206,4 +249,3 @@ def run_music_agent(
         or "操作は完了しました。必要なら次の曲調も調整できます。",
         "toolMessages": tool_messages,
     }
-

@@ -524,7 +524,7 @@ function SettingsPanel({
                 Settings
               </p>
               <p className="mt-2 text-sm font-semibold text-zinc-900">
-                Spotify Control Settings
+                Integration Settings
               </p>
             </div>
 
@@ -773,15 +773,8 @@ export function HomeShell({
 
   let composerReason: string | null = null;
 
-  if (!session.spotifyConfigured) {
-    composerReason = "Spotify の client 設定がまだサーバーにありません。";
-  } else if (!session.authenticated) {
-    composerReason = "Spotify に接続するとチャットから再生を変えられます。";
-  } else if (!session.llmConfigured) {
+  if (!session.llmConfigured) {
     composerReason = "OPENAI_API_KEY を設定すると LangGraph エージェントが動きます。";
-  } else if (!session.deviceReady) {
-    composerReason =
-      "ブラウザの Spotify 再生デバイスを準備中です。数秒待って再試行してください。";
   }
 
   const currentTrack = session.playback?.item ?? null;
@@ -1117,17 +1110,7 @@ export function HomeShell({
             ) : null}
 
             <div className="space-y-12">
-              {visibleMessages.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-zinc-200 bg-zinc-50/60 px-5 py-8 text-center">
-                  <p className="text-[10px] font-black uppercase tracking-[0.24em] text-zinc-400">
-                    Awaiting First Command
-                  </p>
-                  <p className="mt-4 text-sm leading-7 text-zinc-500">
-                    ここには最初の案内メッセージを出さず、会話が始まってから履歴を表示します。
-                    好きな作品名や気分をそのまま送ってください。
-                  </p>
-                </div>
-              ) : (
+              {visibleMessages.length === 0 ? null : (
                 visibleMessages.map((message, index) => {
                   const isUser = message.role === "user";
                   const isLastBot =
